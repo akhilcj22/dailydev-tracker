@@ -7,6 +7,16 @@ import { formatDuration } from './time';
 
 let panel: vscode.WebviewPanel | undefined;
 let tickInterval: ReturnType<typeof setInterval> | undefined;
+let statusBarButton: vscode.StatusBarItem | undefined;
+
+export function activateStatusBarButton(context: vscode.ExtensionContext): void {
+	statusBarButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+	statusBarButton.text = '$(graph) Dashboard';
+	statusBarButton.tooltip = 'Open DailyDev Tracker dashboard';
+	statusBarButton.command = 'dailydev-tracker.showDashboard';
+	statusBarButton.show();
+	context.subscriptions.push(statusBarButton);
+}
 
 interface DashboardEntry {
 	id: number;

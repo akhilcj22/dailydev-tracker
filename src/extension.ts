@@ -39,6 +39,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	console.log('DailyDev Tracker is active!');
 	session.restoreOnActivate(context);
 	reminder.activateReminders(context);
+	dashboard.activateStatusBarButton(context);
 
 	const addProjectCommand = vscode.commands.registerCommand('dailydev-tracker.addProject', async () => {
 		const name = await promptForProjectName();

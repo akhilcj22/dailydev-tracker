@@ -26,7 +26,6 @@ export type ResumeResult = 'resumed' | 'not-paused' | 'none';
 function ensureStatusBarItem(): vscode.StatusBarItem {
 	if (!statusBarItem) {
 		statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-		statusBarItem.command = 'dailydev-tracker.showActiveTaskMenu';
 	}
 	return statusBarItem;
 }
@@ -49,7 +48,10 @@ function updateStatusBar(context: vscode.ExtensionContext): void {
 	const session = getSession(context);
 	const item = ensureStatusBarItem();
 	if (!session) {
-		item.hide();
+		item.text = '$(play) Start Task';
+		item.tooltip = 'DailyDev Tracker: click to start a task';
+		item.command = 'dailydev-tracker.startTask';
+		item.show();
 		return;
 	}
 	const elapsed = formatDuration(computeElapsedMs(session));
@@ -59,6 +61,7 @@ function updateStatusBar(context: vscode.ExtensionContext): void {
 	item.tooltip = session.pausedAt
 		? 'Task paused — click to resume, stop, or switch'
 		: 'Task running — click to pause, stop, or switch';
+	item.command = 'dailydev-tracker.showActiveTaskMenu';
 	item.show();
 }
 
@@ -150,7 +153,7 @@ export function hasActiveSession(context: vscode.ExtensionContext): boolean {
 export function restoreOnActivate(context: vscode.ExtensionContext): void {
 	const session = getSession(context);
 	if (!session) {
-		ensureStatusBarItem().hide();
+		updateStatusBar(context);
 		return;
 	}
 	if (session.pausedAt) {
