@@ -145,5 +145,52 @@ suite('time tracking', () => {
 			assert.ok(infoMessages.some((m) => m.startsWith('Stopped:') && m.includes(projectA) && m.includes('Task on A')));
 			assert.ok(infoMessages.some((m) => m.startsWith('Started:') && m.includes(projectB) && m.includes('Task on B')));
 		});
+
+		test('backdating the start time in the popup produces a correspondingly longer duration', async () => {
+			await getExtension();
+
+			const originalShowInformationMessage = vscode.window.showInformationMessage;
+			const originalShowWarningMessage = vscode.window.showWarningMessage;
+
+			const infoMessages: string[] = [];
+			const projectName = `Smoke Backdate Project ${Date.now()}`;
+
+			try {
+				(vscode.window as any).showWarningMessage = async () => undefined;
+				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
+
+				(vscode.window as any).showInformationMessage = async (message: string) => {
+					infoMessages.push(message);
+					return undefined;
+				};
+
+				const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+				const pad = (n: number) => n.toString().padStart(2, '0');
+				const backdatedTime = `${pad(tenMinutesAgo.getHours())}:${pad(tenMinutesAgo.getMinutes())}`;
+
+				const restoreModal = stubStartTaskModal(() => ({
+					projectValue: 'add-new',
+					newProjectName: projectName,
+					description: 'Backdated task',
+					startTime: backdatedTime
+				}));
+				await vscode.commands.executeCommand('dailydev-tracker.startTask');
+				restoreModal();
+
+				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
+			} finally {
+				(vscode.window as any).showInformationMessage = originalShowInformationMessage;
+				(vscode.window as any).showWarningMessage = originalShowWarningMessage;
+			}
+
+			const stoppedMessage = infoMessages.find((m) => m.startsWith('Stopped:') && m.includes(projectName));
+			assert.ok(stoppedMessage, 'expected a Stopped message');
+			const match = /(\d{2}):(\d{2}):(\d{2})/.exec(stoppedMessage!);
+			assert.ok(match, 'expected a formatted HH:mm:ss duration');
+			const totalSeconds = Number(match![1]) * 3600 + Number(match![2]) * 60 + Number(match![3]);
+			// Allow a little slack for the HH:mm input's minute-level precision and test execution
+			// time, but this must reflect the backdated start, not ~0s from "now".
+			assert.ok(totalSeconds >= 9 * 60, `expected duration to reflect the backdated start time, got ${totalSeconds}s`);
+		});
 	});
 });

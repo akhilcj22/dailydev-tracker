@@ -60,6 +60,14 @@ export interface StartTaskSubmission {
 	projectValue: string;
 	newProjectName?: string;
 	description: string;
+	/** Defaults to the current time (HH:mm) when omitted, matching the popup's own default. */
+	startTime?: string;
+}
+
+function nowHHMM(): string {
+	const now = new Date();
+	const pad = (n: number) => n.toString().padStart(2, '0');
+	return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
 /**
@@ -75,7 +83,9 @@ export function stubStartTaskModal(buildSubmission: (html: string) => StartTaskS
 		const fakePanel = createFakePanel(() => {
 			queueMicrotask(() => {
 				const submission = buildSubmission(fakePanel._html);
-				fakePanel._messageHandler?.(submission ? { type: 'submit', ...submission } : { type: 'cancel' });
+				fakePanel._messageHandler?.(
+					submission ? { type: 'submit', startTime: nowHHMM(), ...submission } : { type: 'cancel' }
+				);
 			});
 		});
 		return fakePanel as unknown as vscode.WebviewPanel;

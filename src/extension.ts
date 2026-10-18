@@ -14,7 +14,7 @@ async function startNewTaskFlow(context: vscode.ExtensionContext): Promise<void>
 	if (!result) {
 		return;
 	}
-	await session.beginSession(context, result.target, result.description);
+	await session.beginSession(context, result.target, result.description, result.startTime);
 	vscode.window.showInformationMessage(`Started: ${result.target.label} — ${result.description}`);
 }
 

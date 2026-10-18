@@ -78,11 +78,15 @@ function stopTicking(): void {
 	}
 }
 
-export async function beginSession(context: vscode.ExtensionContext, target: TaskTarget, description: string): Promise<void> {
+export async function beginSession(
+	context: vscode.ExtensionContext,
+	target: TaskTarget,
+	description: string,
+	startTime: string = new Date().toISOString()
+): Promise<void> {
 	if (getSession(context)) {
 		throw new Error('A task is already active.');
 	}
-	const startTime = new Date().toISOString();
 	const workLog = db.addWorkLog({ projectId: target.projectId, category: target.category, description, startTime });
 	const session: ActiveSession = {
 		workLogId: workLog.id,

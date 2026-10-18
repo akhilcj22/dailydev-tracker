@@ -6,6 +6,7 @@ import { TaskTarget } from './session';
 export interface StartTaskResult {
 	target: TaskTarget;
 	description: string;
+	startTime: string;
 }
 
 function escapeHtml(value: string): string {
@@ -19,6 +20,25 @@ function getNonce(): string {
 		text += possible.charAt(Math.floor(Math.random() * possible.length));
 	}
 	return text;
+}
+
+function defaultTimeValue(): string {
+	const now = new Date();
+	const pad = (n: number) => n.toString().padStart(2, '0');
+	return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+function parseStartTimeInput(value: string, now: Date): Date | undefined {
+	const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+	if (!match) {
+		return undefined;
+	}
+	const hour = Number(match[1]);
+	const minute = Number(match[2]);
+	if (hour > 23 || minute > 59) {
+		return undefined;
+	}
+	return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
 }
 
 const RECENT_TASKS_LIMIT = 3;
@@ -36,6 +56,7 @@ function getHtml(projects: Project[]): string {
 	const nonce = getNonce();
 	const projectOptions = projects.map((p) => `<option value="p:${p.id}">${escapeHtml(p.name)}</option>`).join('');
 	const recentTasksByProject = buildRecentTasksByProject(projects);
+	const defaultStartTime = defaultTimeValue();
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -64,7 +85,7 @@ function getHtml(projects: Project[]): string {
 	.modal-card h3 { margin: 0 0 16px 0; font-size: 15px; font-weight: 600; }
 	label { display: block; font-size: 12px; color: var(--vscode-descriptionForeground); margin: 12px 0 4px; }
 	label:first-of-type { margin-top: 0; }
-	select, input[type="text"] {
+	select, input[type="text"], input[type="time"] {
 		width: 100%;
 		box-sizing: border-box;
 		padding: 6px 8px;
@@ -75,7 +96,7 @@ function getHtml(projects: Project[]): string {
 		font-size: 13px;
 		font-family: var(--vscode-font-family);
 	}
-	select:focus, input[type="text"]:focus { outline: 1px solid var(--vscode-focusBorder); }
+	select:focus, input[type="text"]:focus, input[type="time"]:focus { outline: 1px solid var(--vscode-focusBorder); }
 	.error { color: var(--vscode-errorForeground, #f14c4c); font-size: 12px; min-height: 16px; margin-top: 4px; }
 	.hidden { display: none; }
 	.recent-label { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 6px 0 4px; }
@@ -130,6 +151,10 @@ function getHtml(projects: Project[]): string {
 		<div class="error" id="descriptionError"></div>
 		<div id="recentTasks" class="hidden"></div>
 
+		<label for="startTime">Start time</label>
+		<input id="startTime" type="time" value="${defaultStartTime}" />
+		<div class="error" id="startTimeError"></div>
+
 		<div class="actions">
 			<button class="secondary" id="cancelBtn">Cancel</button>
 			<button id="okBtn">Start</button>
@@ -144,6 +169,8 @@ function getHtml(projects: Project[]): string {
 	const description = document.getElementById('description');
 	const descriptionError = document.getElementById('descriptionError');
 	const recentTasks = document.getElementById('recentTasks');
+	const startTime = document.getElementById('startTime');
+	const startTimeError = document.getElementById('startTimeError');
 	const recentTasksByProject = ${JSON.stringify(recentTasksByProject).replace(/</g, '\\u003c')};
 
 	function escapeHtml(s) {
@@ -185,7 +212,8 @@ function getHtml(projects: Project[]): string {
 		return {
 			projectValue: projectSelect.value,
 			newProjectName: newProjectName.value,
-			description: description.value
+			description: description.value,
+			startTime: startTime.value
 		};
 	}
 
@@ -206,6 +234,7 @@ function getHtml(projects: Project[]): string {
 		if (msg.type === 'validation') {
 			newProjectError.textContent = msg.newProjectError || '';
 			descriptionError.textContent = msg.descriptionError || '';
+			startTimeError.textContent = msg.startTimeError || '';
 		}
 	});
 
@@ -215,13 +244,20 @@ function getHtml(projects: Project[]): string {
 </html>`;
 }
 
+interface ValidationErrors {
+	newProjectError?: string;
+	descriptionError?: string;
+	startTimeError?: string;
+}
+
 function validate(
-	projects: Project[],
 	projectValue: string,
 	newProjectNameValue: string,
-	descriptionValue: string
-): { newProjectError?: string; descriptionError?: string } {
-	const errors: { newProjectError?: string; descriptionError?: string } = {};
+	descriptionValue: string,
+	startTimeValue: string,
+	now: Date
+): ValidationErrors {
+	const errors: ValidationErrors = {};
 
 	if (projectValue === 'add-new') {
 		const name = newProjectNameValue.trim();
@@ -234,6 +270,13 @@ function validate(
 
 	if (!descriptionValue.trim()) {
 		errors.descriptionError = 'Task description cannot be empty';
+	}
+
+	const parsedStart = parseStartTimeInput(startTimeValue, now);
+	if (!parsedStart) {
+		errors.startTimeError = 'Enter a valid time';
+	} else if (parsedStart.getTime() > now.getTime()) {
+		errors.startTimeError = 'Start time cannot be in the future';
 	}
 
 	return errors;
@@ -277,7 +320,7 @@ export function showStartTaskModal(): Promise<StartTaskResult | undefined> {
 		panel.webview.html = getHtml(projects);
 
 		panel.webview.onDidReceiveMessage(
-			(message: { type: string; projectValue?: string; newProjectName?: string; description?: string }) => {
+			(message: { type: string; projectValue?: string; newProjectName?: string; description?: string; startTime?: string }) => {
 				if (message.type === 'cancel') {
 					finish(undefined);
 					return;
@@ -288,18 +331,21 @@ export function showStartTaskModal(): Promise<StartTaskResult | undefined> {
 				const projectValue = message.projectValue ?? '';
 				const newProjectNameValue = message.newProjectName ?? '';
 				const descriptionValue = message.description ?? '';
+				const startTimeValue = message.startTime ?? '';
+				const now = new Date();
 
-				const errors = validate(projects, projectValue, newProjectNameValue, descriptionValue);
-				if (errors.newProjectError || errors.descriptionError) {
+				const errors = validate(projectValue, newProjectNameValue, descriptionValue, startTimeValue, now);
+				if (errors.newProjectError || errors.descriptionError || errors.startTimeError) {
 					panel.webview.postMessage({ type: 'validation', ...errors });
 					return;
 				}
 
 				const target = resolveTarget(projects, projectValue, newProjectNameValue);
-				if (!target) {
+				const parsedStart = parseStartTimeInput(startTimeValue, now);
+				if (!target || !parsedStart) {
 					return;
 				}
-				finish({ target, description: descriptionValue.trim() });
+				finish({ target, description: descriptionValue.trim(), startTime: parsedStart.toISOString() });
 			}
 		);
 
