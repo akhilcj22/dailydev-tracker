@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import initSqlJs = require('sql.js');
-import { NewWorkLog, Project, WorkCategory, WorkLog } from './models';
+import { NewWorkLog, Project, WorkCategory, WorkLog, WorkLogWithProjectName } from './models';
 
 let sql: import('sql.js').SqlJsStatic;
 let db: import('sql.js').Database;
@@ -95,4 +95,63 @@ export function addWorkLog(entry: NewWorkLog): WorkLog {
 function getLastInsertRowId(): number {
 	const result = db.exec('SELECT last_insert_rowid()');
 	return Number(result[0].values[0][0]);
+}
+
+function rowToWorkLog(row: (string | number | Uint8Array | null)[]): WorkLog {
+	return {
+		id: Number(row[0]),
+		projectId: row[1] === null ? null : Number(row[1]),
+		category: row[2] as WorkCategory,
+		description: String(row[3]),
+		startTime: String(row[4]),
+		endTime: row[5] === null ? null : String(row[5]),
+		durationSeconds: row[6] === null ? null : Number(row[6])
+	};
+}
+
+export function getWorkLog(id: number): WorkLog | undefined {
+	const result = db.exec(
+		'SELECT id, project_id, category, description, start_time, end_time, duration_seconds FROM work_logs WHERE id = ?',
+		[id]
+	);
+	if (result.length === 0) {
+		return undefined;
+	}
+	return rowToWorkLog(result[0].values[0]);
+}
+
+export function finishWorkLog(id: number, endTime: string, durationSeconds: number): void {
+	db.run('UPDATE work_logs SET end_time = ?, duration_seconds = ? WHERE id = ?', [endTime, durationSeconds, id]);
+	persist();
+}
+
+export function listFinishedWorkLogs(limit: number): WorkLogWithProjectName[] {
+	const result = db.exec(
+		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds,
+				COALESCE(p.name, 'Client Support') AS project_name
+		 FROM work_logs w
+		 LEFT JOIN projects p ON p.id = w.project_id
+		 WHERE w.end_time IS NOT NULL
+		 ORDER BY w.start_time DESC
+		 LIMIT ?`,
+		[limit]
+	);
+	if (result.length === 0) {
+		return [];
+	}
+	return result[0].values.map((row) => ({
+		...rowToWorkLog(row.slice(0, 7)),
+		projectName: String(row[7])
+	}));
+}
+
+export function updateWorkLogDuration(id: number, durationSeconds: number): WorkLog {
+	const log = getWorkLog(id);
+	if (!log) {
+		throw new Error(`Work log ${id} not found`);
+	}
+	const endTime = new Date(new Date(log.startTime).getTime() + durationSeconds * 1000).toISOString();
+	db.run('UPDATE work_logs SET end_time = ?, duration_seconds = ? WHERE id = ?', [endTime, durationSeconds, id]);
+	persist();
+	return { ...log, endTime, durationSeconds };
 }

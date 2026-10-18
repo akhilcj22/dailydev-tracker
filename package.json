@@ -20,6 +20,30 @@
       {
         "command": "dailydev-tracker.addProject",
         "title": "DailyDev: Add Project"
+      },
+      {
+        "command": "dailydev-tracker.switchTask",
+        "title": "DailyDev: Switch Task"
+      },
+      {
+        "command": "dailydev-tracker.pauseTask",
+        "title": "DailyDev: Pause Task"
+      },
+      {
+        "command": "dailydev-tracker.resumeTask",
+        "title": "DailyDev: Resume Task"
+      },
+      {
+        "command": "dailydev-tracker.stopTask",
+        "title": "DailyDev: Stop Task"
+      },
+      {
+        "command": "dailydev-tracker.showActiveTaskMenu",
+        "title": "DailyDev: Task Menu"
+      },
+      {
+        "command": "dailydev-tracker.editEntryDuration",
+        "title": "DailyDev: Correct Entry Duration"
       }
     ]
   },

@@ -10,6 +10,7 @@ suite('startTask command smoke test', () => {
 		const originalShowInputBox = vscode.window.showInputBox;
 		const originalShowQuickPick = vscode.window.showQuickPick;
 		const originalShowInformationMessage = vscode.window.showInformationMessage;
+		const originalShowWarningMessage = vscode.window.showWarningMessage;
 
 		let capturedMessage: string | undefined;
 
@@ -19,6 +20,12 @@ suite('startTask command smoke test', () => {
 		const projectName = `Smoke Test Project ${Date.now()}`;
 
 		try {
+			// A session left active by a previous run (globalState persists the same way
+			// the SQLite file does) would otherwise make startTask prompt to switch instead
+			// of starting fresh.
+			(vscode.window as any).showWarningMessage = async () => undefined;
+			await vscode.commands.executeCommand('dailydev-tracker.stopTask');
+
 			// Step 1: add a project via the "DailyDev: Add Project" command.
 			(vscode.window as any).showInputBox = async () => projectName;
 			await vscode.commands.executeCommand('dailydev-tracker.addProject');
@@ -35,10 +42,16 @@ suite('startTask command smoke test', () => {
 			};
 
 			await vscode.commands.executeCommand('dailydev-tracker.startTask');
+
+			// Leave no active session behind for the next test/run (use a no-op stub so this
+			// doesn't clobber the captured "Started: ..." message above).
+			(vscode.window as any).showInformationMessage = async () => undefined;
+			await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 		} finally {
 			(vscode.window as any).showInputBox = originalShowInputBox;
 			(vscode.window as any).showQuickPick = originalShowQuickPick;
 			(vscode.window as any).showInformationMessage = originalShowInformationMessage;
+			(vscode.window as any).showWarningMessage = originalShowWarningMessage;
 		}
 
 		assert.ok(capturedMessage, 'expected an information message to be shown');
