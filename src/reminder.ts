@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { fromIstComponents, toIstCalendar } from './istTime';
 
 const LAST_REMINDER_KEY = 'dailydev-tracker.lastReminderDate';
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -33,37 +34,44 @@ export function readConfig(): ReminderConfig {
 	};
 }
 
+// All scheduling below is anchored to IST calendar days/hours (via istTime.ts), not the host
+// system's local timezone — the extension's process may run under a system clock set to a
+// different zone (e.g. UTC on a WSL2 host) than the user's actual IST location.
+
 export function todayKey(date: Date): string {
-	return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+	const cal = toIstCalendar(date);
+	return `${cal.getUTCFullYear()}-${cal.getUTCMonth() + 1}-${cal.getUTCDate()}`;
 }
 
 export function reminderTimeOn(date: Date, config: ReminderConfig): Date {
-	return new Date(date.getFullYear(), date.getMonth(), date.getDate(), config.hour, config.minute, 0, 0);
+	const cal = toIstCalendar(date);
+	return fromIstComponents(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate(), config.hour, config.minute);
 }
 
-/** Finds the reminder time on the first working day on/after `from` (scanning up to a week). */
+/** Finds the reminder time on the first working day on/after `from` (scanning up to a week), in IST. */
 export function nextWorkingDayAtReminderTime(from: Date, config: ReminderConfig): Date {
-	const candidate = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+	const cal = toIstCalendar(from);
+	const candidate = new Date(Date.UTC(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate()));
 	for (let i = 0; i < 8; i++) {
-		if (config.workingDays.has(candidate.getDay())) {
-			return reminderTimeOn(candidate, config);
+		if (config.workingDays.has(candidate.getUTCDay())) {
+			return fromIstComponents(candidate.getUTCFullYear(), candidate.getUTCMonth(), candidate.getUTCDate(), config.hour, config.minute);
 		}
-		candidate.setDate(candidate.getDate() + 1);
+		candidate.setUTCDate(candidate.getUTCDate() + 1);
 	}
 	// No working days configured at all; fall back to tomorrow so this never fires immediately in a loop.
-	const fallback = new Date(from);
-	fallback.setDate(fallback.getDate() + 1);
-	return reminderTimeOn(fallback, config);
+	const fallback = new Date(Date.UTC(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate() + 1));
+	return fromIstComponents(fallback.getUTCFullYear(), fallback.getUTCMonth(), fallback.getUTCDate(), config.hour, config.minute);
 }
 
-/** The next strictly-future reminder moment: later today if still upcoming, else the next working day. */
+/** The next strictly-future reminder moment (IST): later today if still upcoming, else the next working day. */
 export function computeNextFireTime(now: Date, config: ReminderConfig): Date {
 	const todayCandidate = reminderTimeOn(now, config);
-	if (config.workingDays.has(now.getDay()) && todayCandidate.getTime() > now.getTime()) {
+	const nowCal = toIstCalendar(now);
+	if (config.workingDays.has(nowCal.getUTCDay()) && todayCandidate.getTime() > now.getTime()) {
 		return todayCandidate;
 	}
-	const tomorrow = new Date(now);
-	tomorrow.setDate(tomorrow.getDate() + 1);
+	// IST has no DST, so adding exactly 24h always lands on the next IST calendar day.
+	const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 	return nextWorkingDayAtReminderTime(tomorrow, config);
 }
 
@@ -71,7 +79,7 @@ export function decideOnActivate(now: Date, config: ReminderConfig, alreadyShown
 	if (!config.enabled) {
 		return { action: 'disabled' };
 	}
-	const isWorkingDay = config.workingDays.has(now.getDay());
+	const isWorkingDay = config.workingDays.has(toIstCalendar(now).getUTCDay());
 	const todaysReminderTime = reminderTimeOn(now, config);
 	if (isWorkingDay && !alreadyShownToday && now.getTime() >= todaysReminderTime.getTime()) {
 		return { action: 'catch-up' };

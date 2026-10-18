@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { formatIstTime24h } from '../istTime';
 
 function createFakePanel(onMessageRegistered: (messageHandler: (message: Record<string, unknown>) => void) => void) {
 	let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
@@ -65,9 +66,10 @@ export interface StartTaskSubmission {
 }
 
 function nowHHMM(): string {
-	const now = new Date();
-	const pad = (n: number) => n.toString().padStart(2, '0');
-	return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+	// The real popup's default is computed via formatIstTime24h (src/startTaskModal.ts), and its
+	// validation now interprets this string as IST wall-clock — so the stub must match, or it can
+	// submit a value that reads as "in the future" once reinterpreted as IST.
+	return formatIstTime24h(new Date());
 }
 
 /**

@@ -4,6 +4,7 @@ import * as session from './session';
 import { pickTaskTarget, promptForTaskDescription } from './taskPicker';
 import { promptForDurationMinutes, promptForDescriptionEdit } from './prompts';
 import { formatDuration } from './time';
+import { formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
 
 let panel: vscode.WebviewPanel | undefined;
 let tickInterval: ReturnType<typeof setInterval> | undefined;
@@ -47,8 +48,8 @@ interface DashboardState {
 }
 
 function getTodayBounds(): { startIso: string; endIso: string } {
-	const now = new Date();
-	const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	const cal = toIstCalendar(new Date());
+	const start = fromIstComponents(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate(), 0, 0, 0);
 	const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 	return { startIso: start.toISOString(), endIso: end.toISOString() };
 }
@@ -71,7 +72,7 @@ function buildState(context: vscode.ExtensionContext): DashboardState {
 		id: log.id,
 		projectName: log.projectName,
 		description: log.description,
-		startLabel: new Date(log.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+		startLabel: formatIstTime12h(new Date(log.startTime)),
 		durationLabel: formatDuration((log.durationSeconds ?? 0) * 1000),
 		durationSeconds: log.durationSeconds ?? 0
 	}));

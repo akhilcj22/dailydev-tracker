@@ -8,6 +8,7 @@ import { promptForDurationMinutes } from './prompts';
 import { showStartTaskModal } from './startTaskModal';
 import { WorkLogWithProjectName } from './models';
 import { formatDuration } from './time';
+import { formatIstDateTime } from './istTime';
 
 async function startNewTaskFlow(context: vscode.ExtensionContext): Promise<void> {
 	const result = await showStartTaskModal();
@@ -29,7 +30,7 @@ async function switchTaskFlow(context: vscode.ExtensionContext): Promise<void> {
 }
 
 function formatEntryTimeRange(entry: WorkLogWithProjectName): string {
-	const start = new Date(entry.startTime).toLocaleString();
+	const start = formatIstDateTime(new Date(entry.startTime));
 	const minutes = Math.round((entry.durationSeconds ?? 0) / 60);
 	return `${start} — ${minutes} min`;
 }

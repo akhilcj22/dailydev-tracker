@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as db from './db';
 import { Project } from './models';
 import { TaskTarget } from './session';
+import { formatIstTime24h, istWallClockOn } from './istTime';
 
 export interface StartTaskResult {
 	target: TaskTarget;
@@ -23,9 +24,7 @@ function getNonce(): string {
 }
 
 function defaultTimeValue(): string {
-	const now = new Date();
-	const pad = (n: number) => n.toString().padStart(2, '0');
-	return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+	return formatIstTime24h(new Date());
 }
 
 function parseStartTimeInput(value: string, now: Date): Date | undefined {
@@ -38,7 +37,7 @@ function parseStartTimeInput(value: string, now: Date): Date | undefined {
 	if (hour > 23 || minute > 59) {
 		return undefined;
 	}
-	return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+	return istWallClockOn(now, hour, minute);
 }
 
 const RECENT_TASKS_LIMIT = 3;

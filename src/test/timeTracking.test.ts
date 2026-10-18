@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { computeElapsedMs } from '../session';
 import { ActiveSession } from '../models';
+import { formatIstTime24h } from '../istTime';
 import { stubStartTaskModal, stubModalInput, findProjectOptionValue } from './testUtils';
 
 suite('time tracking', () => {
@@ -165,8 +166,7 @@ suite('time tracking', () => {
 				};
 
 				const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-				const pad = (n: number) => n.toString().padStart(2, '0');
-				const backdatedTime = `${pad(tenMinutesAgo.getHours())}:${pad(tenMinutesAgo.getMinutes())}`;
+				const backdatedTime = formatIstTime24h(tenMinutesAgo);
 
 				const restoreModal = stubStartTaskModal(() => ({
 					projectValue: 'add-new',
