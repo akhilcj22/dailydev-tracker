@@ -1,14 +1,13 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { stubModalInput } from './testUtils';
+import { stubStartTaskModal } from './testUtils';
 
 suite('startTask command smoke test', () => {
-	test('adds a project, then starts a task against it and shows both in an info message', async () => {
+	test('starts a task against a newly created project and shows both in an info message', async () => {
 		const extension = vscode.extensions.getExtension('undefined_publisher.dailydev-tracker');
 		assert.ok(extension, 'extension should be discoverable by id');
 		await extension!.activate();
 
-		const originalShowQuickPick = vscode.window.showQuickPick;
 		const originalShowInformationMessage = vscode.window.showInformationMessage;
 		const originalShowWarningMessage = vscode.window.showWarningMessage;
 
@@ -26,23 +25,18 @@ suite('startTask command smoke test', () => {
 			(vscode.window as any).showWarningMessage = async () => undefined;
 			await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 
-			// Step 1: add a project via the "DailyDev: Add Project" command. The project-name
-			// prompt is a Webview-based modal popup, so stub createWebviewPanel to auto-submit it.
-			let restoreModal = stubModalInput(projectName);
-			await vscode.commands.executeCommand('dailydev-tracker.addProject');
-			restoreModal();
-
-			// Step 2: start a task, picking the project just created from the QuickPick, then
-			// auto-submitting the task-description modal.
-			(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
-				const items = await itemsOrPromise;
-				return items.find((item: any) => item.label === projectName);
-			};
 			(vscode.window as any).showInformationMessage = async (message: string) => {
 				capturedMessage = message;
 				return undefined;
 			};
-			restoreModal = stubModalInput('Fix Delivery Tracker report');
+
+			// The combined "Start Task" modal lets you pick/add a project and type the task
+			// description in one popup; submit it with the "+ Add new project..." option.
+			const restoreModal = stubStartTaskModal(() => ({
+				projectValue: 'add-new',
+				newProjectName: projectName,
+				description: 'Fix Delivery Tracker report'
+			}));
 			await vscode.commands.executeCommand('dailydev-tracker.startTask');
 			restoreModal();
 
@@ -51,7 +45,6 @@ suite('startTask command smoke test', () => {
 			(vscode.window as any).showInformationMessage = async () => undefined;
 			await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 		} finally {
-			(vscode.window as any).showQuickPick = originalShowQuickPick;
 			(vscode.window as any).showInformationMessage = originalShowInformationMessage;
 			(vscode.window as any).showWarningMessage = originalShowWarningMessage;
 		}

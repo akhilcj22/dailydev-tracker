@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { computeElapsedMs } from '../session';
 import { ActiveSession } from '../models';
-import { stubModalInput } from './testUtils';
+import { stubStartTaskModal, stubModalInput, findProjectOptionValue } from './testUtils';
 
 suite('time tracking', () => {
 	test('computeElapsedMs excludes time spent paused', () => {
@@ -40,7 +40,6 @@ suite('time tracking', () => {
 		test('start, pause, resume, then stop records a finished entry and rejects a second stop', async () => {
 			await getExtension();
 
-			const originalShowQuickPick = vscode.window.showQuickPick;
 			const originalShowInformationMessage = vscode.window.showInformationMessage;
 			const originalShowWarningMessage = vscode.window.showWarningMessage;
 
@@ -57,20 +56,16 @@ suite('time tracking', () => {
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 				warningMessages.length = 0;
 
-				let restoreModal = stubModalInput(projectName);
-				await vscode.commands.executeCommand('dailydev-tracker.addProject');
-				restoreModal();
-
-				(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
-					const items = await itemsOrPromise;
-					return items.find((item: any) => item.label === projectName);
-				};
 				(vscode.window as any).showInformationMessage = async (message: string) => {
 					infoMessages.push(message);
 					return undefined;
 				};
 
-				restoreModal = stubModalInput('Pause/resume task');
+				const restoreModal = stubStartTaskModal(() => ({
+					projectValue: 'add-new',
+					newProjectName: projectName,
+					description: 'Pause/resume task'
+				}));
 				await vscode.commands.executeCommand('dailydev-tracker.startTask');
 				restoreModal();
 
@@ -79,7 +74,6 @@ suite('time tracking', () => {
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 			} finally {
-				(vscode.window as any).showQuickPick = originalShowQuickPick;
 				(vscode.window as any).showInformationMessage = originalShowInformationMessage;
 				(vscode.window as any).showWarningMessage = originalShowWarningMessage;
 			}
@@ -97,10 +91,9 @@ suite('time tracking', () => {
 			);
 		});
 
-		test('switching tasks stops the first entry and starts the next one', async () => {
+		test('switching tasks stops the first entry and starts the next one, picking an existing project', async () => {
 			await getExtension();
 
-			const originalShowQuickPick = vscode.window.showQuickPick;
 			const originalShowInformationMessage = vscode.window.showInformationMessage;
 			const originalShowWarningMessage = vscode.window.showWarningMessage;
 
@@ -112,32 +105,31 @@ suite('time tracking', () => {
 				(vscode.window as any).showWarningMessage = async () => undefined;
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 
-				let restoreModal = stubModalInput(projectA);
-				await vscode.commands.executeCommand('dailydev-tracker.addProject');
-				restoreModal();
-
-				restoreModal = stubModalInput(projectB);
-				await vscode.commands.executeCommand('dailydev-tracker.addProject');
-				restoreModal();
-
 				(vscode.window as any).showInformationMessage = async (message: string) => {
 					infoMessages.push(message);
 					return undefined;
 				};
 
-				(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
-					const items = await itemsOrPromise;
-					return items.find((item: any) => item.label === projectA);
-				};
-				restoreModal = stubModalInput('Task on A');
+				// Start on project A, creating it inline via the "+ Add new project..." option.
+				let restoreModal = stubStartTaskModal(() => ({
+					projectValue: 'add-new',
+					newProjectName: projectA,
+					description: 'Task on A'
+				}));
 				await vscode.commands.executeCommand('dailydev-tracker.startTask');
 				restoreModal();
 
-				(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
-					const items = await itemsOrPromise;
-					return items.find((item: any) => item.label === projectB);
-				};
-				restoreModal = stubModalInput('Task on B');
+				// Create project B as a standalone project row (not starting a task on it yet)
+				// via the plain "Add Project" command, so it already exists when we switch.
+				const restoreAddProjectModal = stubModalInput(projectB);
+				await vscode.commands.executeCommand('dailydev-tracker.addProject');
+				restoreAddProjectModal();
+
+				// Switch from A to B, picking B from the dropdown by name (real existing project).
+				restoreModal = stubStartTaskModal((html) => {
+					const projectBValue = findProjectOptionValue(html, projectB);
+					return projectBValue ? { projectValue: projectBValue, description: 'Task on B' } : undefined;
+				});
 				await vscode.commands.executeCommand('dailydev-tracker.switchTask');
 				restoreModal();
 
@@ -145,7 +137,6 @@ suite('time tracking', () => {
 				(vscode.window as any).showInformationMessage = async () => undefined;
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 			} finally {
-				(vscode.window as any).showQuickPick = originalShowQuickPick;
 				(vscode.window as any).showInformationMessage = originalShowInformationMessage;
 				(vscode.window as any).showWarningMessage = originalShowWarningMessage;
 			}

@@ -2,22 +2,19 @@ import * as vscode from 'vscode';
 import * as db from './db';
 import * as session from './session';
 import * as dashboard from './dashboard';
-import { pickTaskTarget, promptForProjectName, promptForTaskDescription } from './taskPicker';
+import { promptForProjectName } from './taskPicker';
 import { promptForDurationMinutes } from './prompts';
+import { showStartTaskModal } from './startTaskModal';
 import { WorkLogWithProjectName } from './models';
 import { formatDuration } from './time';
 
 async function startNewTaskFlow(context: vscode.ExtensionContext): Promise<void> {
-	const target = await pickTaskTarget();
-	if (!target) {
+	const result = await showStartTaskModal();
+	if (!result) {
 		return;
 	}
-	const description = await promptForTaskDescription();
-	if (!description) {
-		return;
-	}
-	await session.beginSession(context, target, description);
-	vscode.window.showInformationMessage(`Started: ${target.label} — ${description}`);
+	await session.beginSession(context, result.target, result.description);
+	vscode.window.showInformationMessage(`Started: ${result.target.label} — ${result.description}`);
 }
 
 async function switchTaskFlow(context: vscode.ExtensionContext): Promise<void> {
