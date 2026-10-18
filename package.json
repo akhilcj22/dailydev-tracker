@@ -44,6 +44,10 @@
       {
         "command": "dailydev-tracker.editEntryDuration",
         "title": "DailyDev: Correct Entry Duration"
+      },
+      {
+        "command": "dailydev-tracker.showDashboard",
+        "title": "DailyDev: Show Dashboard"
       }
     ]
   },

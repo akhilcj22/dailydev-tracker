@@ -155,3 +155,57 @@ export function updateWorkLogDuration(id: number, durationSeconds: number): Work
 	persist();
 	return { ...log, endTime, durationSeconds };
 }
+
+export function updateWorkLogDescription(id: number, description: string): WorkLog {
+	const log = getWorkLog(id);
+	if (!log) {
+		throw new Error(`Work log ${id} not found`);
+	}
+	db.run('UPDATE work_logs SET description = ? WHERE id = ?', [description, id]);
+	persist();
+	return { ...log, description };
+}
+
+export function listFinishedWorkLogsBetween(startIso: string, endIso: string): WorkLogWithProjectName[] {
+	const result = db.exec(
+		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds,
+				COALESCE(p.name, 'Client Support') AS project_name
+		 FROM work_logs w
+		 LEFT JOIN projects p ON p.id = w.project_id
+		 WHERE w.end_time IS NOT NULL AND w.start_time >= ? AND w.start_time < ?
+		 ORDER BY w.start_time ASC`,
+		[startIso, endIso]
+	);
+	if (result.length === 0) {
+		return [];
+	}
+	return result[0].values.map((row) => ({
+		...rowToWorkLog(row.slice(0, 7)),
+		projectName: String(row[7])
+	}));
+}
+
+export function addFinishedWorkLog(entry: {
+	projectId: number | null;
+	category: WorkCategory;
+	description: string;
+	startTime: string;
+	endTime: string;
+	durationSeconds: number;
+}): WorkLog {
+	db.run(
+		'INSERT INTO work_logs (project_id, category, description, start_time, end_time, duration_seconds) VALUES (?, ?, ?, ?, ?, ?)',
+		[entry.projectId, entry.category, entry.description, entry.startTime, entry.endTime, entry.durationSeconds]
+	);
+	const id = getLastInsertRowId();
+	persist();
+	return {
+		id,
+		projectId: entry.projectId,
+		category: entry.category,
+		description: entry.description,
+		startTime: entry.startTime,
+		endTime: entry.endTime,
+		durationSeconds: entry.durationSeconds
+	};
+}

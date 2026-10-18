@@ -1,93 +1,10 @@
 import * as vscode from 'vscode';
 import * as db from './db';
 import * as session from './session';
-import { Project, WorkLogWithProjectName } from './models';
+import * as dashboard from './dashboard';
+import { pickTaskTarget, promptForProjectName, promptForTaskDescription } from './taskPicker';
+import { WorkLogWithProjectName } from './models';
 import { formatDuration } from './time';
-
-interface AddProjectItem extends vscode.QuickPickItem {
-	itemKind: 'add-project';
-}
-
-interface ClientSupportItem extends vscode.QuickPickItem {
-	itemKind: 'client-support';
-}
-
-interface ProjectItem extends vscode.QuickPickItem {
-	itemKind: 'project';
-	project: Project;
-}
-
-type TaskTargetItem = AddProjectItem | ClientSupportItem | ProjectItem;
-
-async function promptForProjectName(): Promise<string | undefined> {
-	const name = await vscode.window.showInputBox({
-		prompt: 'Project name',
-		placeHolder: 'ERPNext / Grain N Grace',
-		validateInput: (value) => {
-			if (!value.trim()) {
-				return 'Project name cannot be empty';
-			}
-			if (db.findProjectByName(value.trim())) {
-				return 'A project with this name already exists';
-			}
-			return undefined;
-		}
-	});
-	return name?.trim();
-}
-
-async function promptForTaskDescription(): Promise<string | undefined> {
-	const task = await vscode.window.showInputBox({
-		prompt: 'What task are you going to work on?',
-		placeHolder: 'Fix Delivery Tracker report',
-		validateInput: (value) => (value.trim() ? undefined : 'Task description cannot be empty')
-	});
-	return task?.trim();
-}
-
-async function pickTaskTarget(): Promise<session.TaskTarget | undefined> {
-	const projects = db.listProjects();
-
-	const items: TaskTargetItem[] = [
-		...projects.map((project): ProjectItem => ({
-			itemKind: 'project',
-			project,
-			label: project.name
-		})),
-		{
-			itemKind: 'client-support',
-			label: '$(law) Client Support',
-			description: 'Debugging / troubleshooting'
-		},
-		{
-			itemKind: 'add-project',
-			label: '$(add) Add new project...'
-		}
-	];
-
-	const picked = await vscode.window.showQuickPick(items, {
-		placeHolder: 'Which project are you working on?'
-	});
-
-	if (!picked) {
-		return undefined;
-	}
-
-	if (picked.itemKind === 'client-support') {
-		return { projectId: null, category: 'client-support', label: picked.label };
-	}
-
-	if (picked.itemKind === 'project') {
-		return { projectId: picked.project.id, category: 'project', label: picked.project.name };
-	}
-
-	const name = await promptForProjectName();
-	if (!name) {
-		return undefined;
-	}
-	const project = db.addProject(name);
-	return { projectId: project.id, category: 'project', label: project.name };
-}
 
 async function startNewTaskFlow(context: vscode.ExtensionContext): Promise<void> {
 	const target = await pickTaskTarget();
@@ -242,6 +159,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage('Duration updated.');
 	});
 
+	const showDashboardCommand = vscode.commands.registerCommand('dailydev-tracker.showDashboard', () => {
+		dashboard.showDashboard(context);
+	});
+
 	context.subscriptions.push(
 		addProjectCommand,
 		startTaskCommand,
@@ -250,10 +171,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		resumeTaskCommand,
 		stopTaskCommand,
 		showActiveTaskMenuCommand,
-		editEntryDurationCommand
+		editEntryDurationCommand,
+		showDashboardCommand
 	);
 }
 
 export function deactivate() {
 	session.dispose();
+	dashboard.dispose();
 }
