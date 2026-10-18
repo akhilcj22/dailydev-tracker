@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as db from './db';
 import * as session from './session';
 import * as dashboard from './dashboard';
+import * as reminder from './reminder';
 import { promptForProjectName } from './taskPicker';
 import { promptForDurationMinutes } from './prompts';
 import { showStartTaskModal } from './startTaskModal';
@@ -37,6 +38,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	await db.init(context);
 	console.log('DailyDev Tracker is active!');
 	session.restoreOnActivate(context);
+	reminder.activateReminders(context);
 
 	const addProjectCommand = vscode.commands.registerCommand('dailydev-tracker.addProject', async () => {
 		const name = await promptForProjectName();
@@ -173,4 +175,5 @@ export async function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
 	session.dispose();
 	dashboard.dispose();
+	reminder.dispose();
 }

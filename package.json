@@ -49,7 +49,33 @@
         "command": "dailydev-tracker.showDashboard",
         "title": "DailyDev: Show Dashboard"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "DailyDev Tracker",
+      "properties": {
+        "dailydevTracker.reminderEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a daily reminder to review your tracked tasks."
+        },
+        "dailydevTracker.reminderTime": {
+          "type": "string",
+          "default": "18:00",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "patternErrorMessage": "Use 24-hour HH:mm format, e.g. 18:00",
+          "description": "Time of day (24-hour HH:mm) to show the daily reminder."
+        },
+        "dailydevTracker.workingDays": {
+          "type": "array",
+          "default": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+          "items": {
+            "type": "string",
+            "enum": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+          },
+          "description": "Days of the week to show the daily reminder."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
