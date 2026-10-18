@@ -3,6 +3,7 @@ import * as db from './db';
 import * as session from './session';
 import * as dashboard from './dashboard';
 import { pickTaskTarget, promptForProjectName, promptForTaskDescription } from './taskPicker';
+import { promptForDurationMinutes } from './prompts';
 import { WorkLogWithProjectName } from './models';
 import { formatDuration } from './time';
 
@@ -143,19 +144,15 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const minutesInput = await vscode.window.showInputBox({
-			prompt: `Corrected duration in minutes for "${picked.entry.description}"`,
-			value: String(Math.round((picked.entry.durationSeconds ?? 0) / 60)),
-			validateInput: (value) =>
-				/^\d+$/.test(value.trim()) && Number(value.trim()) > 0
-					? undefined
-					: 'Enter a whole number of minutes greater than 0'
-		});
-		if (!minutesInput) {
+		const minutes = await promptForDurationMinutes(
+			`Corrected duration in minutes for "${picked.entry.description}"`,
+			Math.round((picked.entry.durationSeconds ?? 0) / 60)
+		);
+		if (!minutes) {
 			return;
 		}
 
-		db.updateWorkLogDuration(picked.entry.id, Number(minutesInput.trim()) * 60);
+		db.updateWorkLogDuration(picked.entry.id, minutes * 60);
 		vscode.window.showInformationMessage('Duration updated.');
 	});
 

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as db from './db';
+import { showModalInput } from './modal';
 import { Project } from './models';
 import { TaskTarget } from './session';
 
@@ -19,10 +20,11 @@ interface ProjectItem extends vscode.QuickPickItem {
 type TaskTargetItem = AddProjectItem | ClientSupportItem | ProjectItem;
 
 export async function promptForProjectName(): Promise<string | undefined> {
-	const name = await vscode.window.showInputBox({
+	const name = await showModalInput({
+		title: 'Add Project',
 		prompt: 'Project name',
-		placeHolder: 'ERPNext / Grain N Grace',
-		validateInput: (value) => {
+		placeholder: 'ERPNext / Grain N Grace',
+		validate: (value) => {
 			if (!value.trim()) {
 				return 'Project name cannot be empty';
 			}
@@ -36,10 +38,11 @@ export async function promptForProjectName(): Promise<string | undefined> {
 }
 
 export async function promptForTaskDescription(promptText = 'What task are you going to work on?'): Promise<string | undefined> {
-	const task = await vscode.window.showInputBox({
+	const task = await showModalInput({
+		title: 'Task Description',
 		prompt: promptText,
-		placeHolder: 'Fix Delivery Tracker report',
-		validateInput: (value) => (value.trim() ? undefined : 'Task description cannot be empty')
+		placeholder: 'Fix Delivery Tracker report',
+		validate: (value) => (value.trim() ? undefined : 'Task description cannot be empty')
 	});
 	return task?.trim();
 }

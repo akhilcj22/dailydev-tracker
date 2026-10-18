@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as db from './db';
 import * as session from './session';
 import { pickTaskTarget, promptForTaskDescription } from './taskPicker';
+import { promptForDurationMinutes, promptForDescriptionEdit } from './prompts';
 import { formatDuration } from './time';
 
 let panel: vscode.WebviewPanel | undefined;
@@ -106,28 +107,20 @@ async function editEntry(id: number): Promise<void> {
 		return;
 	}
 	if (choice === 'Edit duration') {
-		const minutesInput = await vscode.window.showInputBox({
-			prompt: `Corrected duration in minutes for "${log.description}"`,
-			value: String(Math.round((log.durationSeconds ?? 0) / 60)),
-			validateInput: (value) =>
-				/^\d+$/.test(value.trim()) && Number(value.trim()) > 0
-					? undefined
-					: 'Enter a whole number of minutes greater than 0'
-		});
-		if (!minutesInput) {
+		const minutes = await promptForDurationMinutes(
+			`Corrected duration in minutes for "${log.description}"`,
+			Math.round((log.durationSeconds ?? 0) / 60)
+		);
+		if (!minutes) {
 			return;
 		}
-		db.updateWorkLogDuration(id, Number(minutesInput.trim()) * 60);
+		db.updateWorkLogDuration(id, minutes * 60);
 	} else {
-		const newDescription = await vscode.window.showInputBox({
-			prompt: 'Task description',
-			value: log.description,
-			validateInput: (value) => (value.trim() ? undefined : 'Description cannot be empty')
-		});
+		const newDescription = await promptForDescriptionEdit(log.description);
 		if (!newDescription) {
 			return;
 		}
-		db.updateWorkLogDescription(id, newDescription.trim());
+		db.updateWorkLogDescription(id, newDescription);
 	}
 }
 
@@ -140,18 +133,11 @@ async function addMissingEntry(): Promise<void> {
 	if (!description) {
 		return;
 	}
-	const minutesInput = await vscode.window.showInputBox({
-		prompt: 'How many minutes did you spend on this?',
-		placeHolder: '45',
-		validateInput: (value) =>
-			/^\d+$/.test(value.trim()) && Number(value.trim()) > 0
-				? undefined
-				: 'Enter a whole number of minutes greater than 0'
-	});
-	if (!minutesInput) {
+	const minutes = await promptForDurationMinutes('How many minutes did you spend on this?', 30);
+	if (!minutes) {
 		return;
 	}
-	const durationSeconds = Number(minutesInput.trim()) * 60;
+	const durationSeconds = minutes * 60;
 	const endTime = new Date().toISOString();
 	const startTime = new Date(Date.now() - durationSeconds * 1000).toISOString();
 	db.addFinishedWorkLog({
@@ -162,7 +148,7 @@ async function addMissingEntry(): Promise<void> {
 		endTime,
 		durationSeconds
 	});
-	vscode.window.showInformationMessage(`Added: ${target.label} — ${description} (${minutesInput.trim()} min)`);
+	vscode.window.showInformationMessage(`Added: ${target.label} — ${description} (${minutes} min)`);
 }
 
 function getNonce(): string {

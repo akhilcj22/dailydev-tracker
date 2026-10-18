@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { stubModalInput } from './testUtils';
 
 suite('startTask command smoke test', () => {
 	test('adds a project, then starts a task against it and shows both in an info message', async () => {
@@ -7,7 +8,6 @@ suite('startTask command smoke test', () => {
 		assert.ok(extension, 'extension should be discoverable by id');
 		await extension!.activate();
 
-		const originalShowInputBox = vscode.window.showInputBox;
 		const originalShowQuickPick = vscode.window.showQuickPick;
 		const originalShowInformationMessage = vscode.window.showInformationMessage;
 		const originalShowWarningMessage = vscode.window.showWarningMessage;
@@ -26,29 +26,31 @@ suite('startTask command smoke test', () => {
 			(vscode.window as any).showWarningMessage = async () => undefined;
 			await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 
-			// Step 1: add a project via the "DailyDev: Add Project" command.
-			(vscode.window as any).showInputBox = async () => projectName;
+			// Step 1: add a project via the "DailyDev: Add Project" command. The project-name
+			// prompt is a Webview-based modal popup, so stub createWebviewPanel to auto-submit it.
+			let restoreModal = stubModalInput(projectName);
 			await vscode.commands.executeCommand('dailydev-tracker.addProject');
+			restoreModal();
 
-			// Step 2: start a task, picking the project just created from the QuickPick.
+			// Step 2: start a task, picking the project just created from the QuickPick, then
+			// auto-submitting the task-description modal.
 			(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
 				const items = await itemsOrPromise;
 				return items.find((item: any) => item.label === projectName);
 			};
-			(vscode.window as any).showInputBox = async () => 'Fix Delivery Tracker report';
 			(vscode.window as any).showInformationMessage = async (message: string) => {
 				capturedMessage = message;
 				return undefined;
 			};
-
+			restoreModal = stubModalInput('Fix Delivery Tracker report');
 			await vscode.commands.executeCommand('dailydev-tracker.startTask');
+			restoreModal();
 
 			// Leave no active session behind for the next test/run (use a no-op stub so this
 			// doesn't clobber the captured "Started: ..." message above).
 			(vscode.window as any).showInformationMessage = async () => undefined;
 			await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 		} finally {
-			(vscode.window as any).showInputBox = originalShowInputBox;
 			(vscode.window as any).showQuickPick = originalShowQuickPick;
 			(vscode.window as any).showInformationMessage = originalShowInformationMessage;
 			(vscode.window as any).showWarningMessage = originalShowWarningMessage;

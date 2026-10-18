@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { computeElapsedMs } from '../session';
 import { ActiveSession } from '../models';
+import { stubModalInput } from './testUtils';
 
 suite('time tracking', () => {
 	test('computeElapsedMs excludes time spent paused', () => {
@@ -39,7 +40,6 @@ suite('time tracking', () => {
 		test('start, pause, resume, then stop records a finished entry and rejects a second stop', async () => {
 			await getExtension();
 
-			const originalShowInputBox = vscode.window.showInputBox;
 			const originalShowQuickPick = vscode.window.showQuickPick;
 			const originalShowInformationMessage = vscode.window.showInformationMessage;
 			const originalShowWarningMessage = vscode.window.showWarningMessage;
@@ -57,26 +57,28 @@ suite('time tracking', () => {
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 				warningMessages.length = 0;
 
-				(vscode.window as any).showInputBox = async () => projectName;
+				let restoreModal = stubModalInput(projectName);
 				await vscode.commands.executeCommand('dailydev-tracker.addProject');
+				restoreModal();
 
 				(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
 					const items = await itemsOrPromise;
 					return items.find((item: any) => item.label === projectName);
 				};
-				(vscode.window as any).showInputBox = async () => 'Pause/resume task';
 				(vscode.window as any).showInformationMessage = async (message: string) => {
 					infoMessages.push(message);
 					return undefined;
 				};
 
+				restoreModal = stubModalInput('Pause/resume task');
 				await vscode.commands.executeCommand('dailydev-tracker.startTask');
+				restoreModal();
+
 				await vscode.commands.executeCommand('dailydev-tracker.pauseTask');
 				await vscode.commands.executeCommand('dailydev-tracker.resumeTask');
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 			} finally {
-				(vscode.window as any).showInputBox = originalShowInputBox;
 				(vscode.window as any).showQuickPick = originalShowQuickPick;
 				(vscode.window as any).showInformationMessage = originalShowInformationMessage;
 				(vscode.window as any).showWarningMessage = originalShowWarningMessage;
@@ -98,7 +100,6 @@ suite('time tracking', () => {
 		test('switching tasks stops the first entry and starts the next one', async () => {
 			await getExtension();
 
-			const originalShowInputBox = vscode.window.showInputBox;
 			const originalShowQuickPick = vscode.window.showQuickPick;
 			const originalShowInformationMessage = vscode.window.showInformationMessage;
 			const originalShowWarningMessage = vscode.window.showWarningMessage;
@@ -111,10 +112,13 @@ suite('time tracking', () => {
 				(vscode.window as any).showWarningMessage = async () => undefined;
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 
-				(vscode.window as any).showInputBox = async () => projectA;
+				let restoreModal = stubModalInput(projectA);
 				await vscode.commands.executeCommand('dailydev-tracker.addProject');
-				(vscode.window as any).showInputBox = async () => projectB;
+				restoreModal();
+
+				restoreModal = stubModalInput(projectB);
 				await vscode.commands.executeCommand('dailydev-tracker.addProject');
+				restoreModal();
 
 				(vscode.window as any).showInformationMessage = async (message: string) => {
 					infoMessages.push(message);
@@ -125,21 +129,22 @@ suite('time tracking', () => {
 					const items = await itemsOrPromise;
 					return items.find((item: any) => item.label === projectA);
 				};
-				(vscode.window as any).showInputBox = async () => 'Task on A';
+				restoreModal = stubModalInput('Task on A');
 				await vscode.commands.executeCommand('dailydev-tracker.startTask');
+				restoreModal();
 
 				(vscode.window as any).showQuickPick = async (itemsOrPromise: any) => {
 					const items = await itemsOrPromise;
 					return items.find((item: any) => item.label === projectB);
 				};
-				(vscode.window as any).showInputBox = async () => 'Task on B';
+				restoreModal = stubModalInput('Task on B');
 				await vscode.commands.executeCommand('dailydev-tracker.switchTask');
+				restoreModal();
 
 				// Clean up so this doesn't leak into later runs.
 				(vscode.window as any).showInformationMessage = async () => undefined;
 				await vscode.commands.executeCommand('dailydev-tracker.stopTask');
 			} finally {
-				(vscode.window as any).showInputBox = originalShowInputBox;
 				(vscode.window as any).showQuickPick = originalShowQuickPick;
 				(vscode.window as any).showInformationMessage = originalShowInformationMessage;
 				(vscode.window as any).showWarningMessage = originalShowWarningMessage;
