@@ -21,9 +21,21 @@ function getNonce(): string {
 	return text;
 }
 
+const RECENT_TASKS_LIMIT = 3;
+
+function buildRecentTasksByProject(projects: Project[]): Record<string, string[]> {
+	const recent: Record<string, string[]> = {};
+	for (const project of projects) {
+		recent[`p:${project.id}`] = db.listRecentDescriptions(project.id, RECENT_TASKS_LIMIT);
+	}
+	recent['client-support'] = db.listRecentDescriptions(null, RECENT_TASKS_LIMIT);
+	return recent;
+}
+
 function getHtml(projects: Project[]): string {
 	const nonce = getNonce();
 	const projectOptions = projects.map((p) => `<option value="p:${p.id}">${escapeHtml(p.name)}</option>`).join('');
+	const recentTasksByProject = buildRecentTasksByProject(projects);
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -66,6 +78,22 @@ function getHtml(projects: Project[]): string {
 	select:focus, input[type="text"]:focus { outline: 1px solid var(--vscode-focusBorder); }
 	.error { color: var(--vscode-errorForeground, #f14c4c); font-size: 12px; min-height: 16px; margin-top: 4px; }
 	.hidden { display: none; }
+	.recent-label { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 6px 0 4px; }
+	.recent-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
+	.chip {
+		background: var(--vscode-badge-background, var(--vscode-button-secondaryBackground));
+		color: var(--vscode-badge-foreground, var(--vscode-button-secondaryForeground));
+		border: none;
+		padding: 3px 10px;
+		border-radius: 12px;
+		font-size: 12px;
+		cursor: pointer;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.chip:hover { opacity: 0.85; }
 	.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 	button {
 		background: var(--vscode-button-background);
@@ -100,6 +128,7 @@ function getHtml(projects: Project[]): string {
 		<label for="description">What task are you going to work on?</label>
 		<input id="description" type="text" placeholder="Fix Delivery Tracker report" />
 		<div class="error" id="descriptionError"></div>
+		<div id="recentTasks" class="hidden"></div>
 
 		<div class="actions">
 			<button class="secondary" id="cancelBtn">Cancel</button>
@@ -114,12 +143,43 @@ function getHtml(projects: Project[]): string {
 	const newProjectError = document.getElementById('newProjectError');
 	const description = document.getElementById('description');
 	const descriptionError = document.getElementById('descriptionError');
+	const recentTasks = document.getElementById('recentTasks');
+	const recentTasksByProject = ${JSON.stringify(recentTasksByProject).replace(/</g, '\\u003c')};
+
+	function escapeHtml(s) {
+		return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+	}
+
+	function renderRecentTasks() {
+		const items = recentTasksByProject[projectSelect.value] || [];
+		if (!items.length) {
+			recentTasks.classList.add('hidden');
+			recentTasks.innerHTML = '';
+			return;
+		}
+		recentTasks.classList.remove('hidden');
+		recentTasks.innerHTML =
+			'<div class="recent-label">Recent tasks for this project</div>' +
+			'<div class="recent-tasks">' +
+			items.map((desc) => '<button type="button" class="chip" data-desc="' + escapeHtml(desc) + '">' + escapeHtml(desc) + '</button>').join('') +
+			'</div>';
+		recentTasks.querySelectorAll('.chip').forEach((chip) => {
+			chip.addEventListener('click', () => {
+				description.value = chip.getAttribute('data-desc');
+				description.focus();
+			});
+		});
+	}
 
 	function updateNewProjectVisibility() {
 		newProjectRow.classList.toggle('hidden', projectSelect.value !== 'add-new');
 	}
-	projectSelect.addEventListener('change', updateNewProjectVisibility);
+	projectSelect.addEventListener('change', () => {
+		updateNewProjectVisibility();
+		renderRecentTasks();
+	});
 	updateNewProjectVisibility();
+	renderRecentTasks();
 
 	function currentState() {
 		return {

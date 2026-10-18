@@ -185,6 +185,22 @@ export function listFinishedWorkLogsBetween(startIso: string, endIso: string): W
 	}));
 }
 
+export function listRecentDescriptions(projectId: number | null, limit: number): string[] {
+	const result = db.exec(
+		`SELECT description, MAX(start_time) AS last_used
+		 FROM work_logs
+		 WHERE project_id IS ?
+		 GROUP BY description
+		 ORDER BY last_used DESC
+		 LIMIT ?`,
+		[projectId, limit]
+	);
+	if (result.length === 0) {
+		return [];
+	}
+	return result[0].values.map((row) => String(row[0]));
+}
+
 export function addFinishedWorkLog(entry: {
 	projectId: number | null;
 	category: WorkCategory;
