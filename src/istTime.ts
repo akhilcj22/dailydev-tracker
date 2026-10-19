@@ -52,3 +52,10 @@ export function formatIstDateLong(instant: Date): string {
 	const month = MONTH_NAMES[cal.getUTCMonth()];
 	return `${weekday}, ${cal.getUTCDate()} ${month} ${cal.getUTCFullYear()}`;
 }
+
+/** The IST calendar date of `instant` as `YYYY-MM-DD`, for filenames and data exports. */
+export function formatIstDateIso(instant: Date): string {
+	const cal = toIstCalendar(instant);
+	const pad = (n: number) => n.toString().padStart(2, '0');
+	return `${cal.getUTCFullYear()}-${pad(cal.getUTCMonth() + 1)}-${pad(cal.getUTCDate())}`;
+}

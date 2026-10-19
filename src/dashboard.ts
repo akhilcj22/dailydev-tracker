@@ -1,14 +1,18 @@
+import * as path from 'path';
+import * as os from 'os';
 import * as vscode from 'vscode';
 import * as db from './db';
 import * as session from './session';
 import { pickTaskTarget, promptForTaskDescription } from './taskPicker';
 import { promptForDurationMinutes, promptForDescriptionEdit } from './prompts';
 import { formatDuration } from './time';
-import { formatIstDateLong, formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
+import { formatIstDateIso, formatIstDateLong, formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
 
 let panel: vscode.WebviewPanel | undefined;
 let tickInterval: ReturnType<typeof setInterval> | undefined;
 let statusBarButton: vscode.StatusBarItem | undefined;
+/** Days back from today the dashboard is currently showing; 0 = today. Resets when the panel is reopened. */
+let viewedDayOffset = 0;
 
 export function activateStatusBarButton(context: vscode.ExtensionContext): void {
 	statusBarButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
@@ -19,7 +23,7 @@ export function activateStatusBarButton(context: vscode.ExtensionContext): void 
 	context.subscriptions.push(statusBarButton);
 }
 
-interface DashboardEntry {
+export interface DashboardEntry {
 	id: number;
 	projectName: string;
 	description: string;
@@ -41,23 +45,27 @@ interface ActiveInfo {
 	paused: boolean;
 }
 
-interface DashboardState {
+export interface DashboardState {
 	active: ActiveInfo | null;
 	entries: DashboardEntry[];
 	totals: ProjectTotal[];
 	grandTotalLabel: string;
-	todayLabel: string;
+	dateLabel: string;
+	isToday: boolean;
+	canGoForward: boolean;
 }
 
-function getTodayBounds(): { startIso: string; endIso: string } {
+function getDayBounds(offsetDays: number): { startIso: string; endIso: string; dayStart: Date } {
 	const cal = toIstCalendar(new Date());
-	const start = fromIstComponents(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate(), 0, 0, 0);
+	const start = fromIstComponents(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate() - offsetDays, 0, 0, 0);
 	const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-	return { startIso: start.toISOString(), endIso: end.toISOString() };
+	return { startIso: start.toISOString(), endIso: end.toISOString(), dayStart: start };
 }
 
 function buildState(context: vscode.ExtensionContext): DashboardState {
-	const activeSession = session.getSession(context);
+	const isToday = viewedDayOffset === 0;
+
+	const activeSession = isToday ? session.getSession(context) : undefined;
 	const active: ActiveInfo | null = activeSession
 		? {
 				label: activeSession.label,
@@ -67,7 +75,7 @@ function buildState(context: vscode.ExtensionContext): DashboardState {
 			}
 		: null;
 
-	const { startIso, endIso } = getTodayBounds();
+	const { startIso, endIso, dayStart } = getDayBounds(viewedDayOffset);
 	const logs = db.listFinishedWorkLogsBetween(startIso, endIso);
 
 	const entries: DashboardEntry[] = logs.map((log) => ({
@@ -95,8 +103,80 @@ function buildState(context: vscode.ExtensionContext): DashboardState {
 		entries,
 		totals,
 		grandTotalLabel: formatDuration(grandTotalSeconds * 1000),
-		todayLabel: formatIstDateLong(new Date())
+		dateLabel: isToday ? `Today — ${formatIstDateLong(dayStart)}` : formatIstDateLong(dayStart),
+		isToday,
+		canGoForward: viewedDayOffset > 0
 	};
+}
+
+export function buildSummaryText(state: DashboardState): string {
+	const lines: string[] = [`DailyDev Tracker — ${state.dateLabel}`, ''];
+
+	const byProject = new Map<string, DashboardEntry[]>();
+	for (const entry of state.entries) {
+		const list = byProject.get(entry.projectName) ?? [];
+		list.push(entry);
+		byProject.set(entry.projectName, list);
+	}
+
+	if (byProject.size === 0) {
+		lines.push('No tracked entries.');
+	} else {
+		for (const [projectName, entries] of byProject) {
+			lines.push(projectName);
+			for (const entry of entries) {
+				lines.push(`  ${entry.startLabel} - ${entry.endLabel}  ${entry.description}  (${entry.durationLabel})`);
+			}
+			const subtotal = entries.reduce((sum, e) => sum + e.durationSeconds, 0);
+			lines.push(`  Subtotal: ${formatDuration(subtotal * 1000)}`);
+			lines.push('');
+		}
+	}
+
+	lines.push(`Total: ${state.grandTotalLabel}`);
+	return lines.join('\n');
+}
+
+export function buildCsv(state: DashboardState, dateIso: string): string {
+	const escape = (value: string): string => {
+		if (/[",\n]/.test(value)) {
+			return `"${value.replace(/"/g, '""')}"`;
+		}
+		return value;
+	};
+	const header = ['Date', 'Project', 'Task', 'Start', 'End', 'Duration'];
+	const rows = state.entries.map((entry) => [
+		dateIso,
+		entry.projectName,
+		entry.description,
+		entry.startLabel,
+		entry.endLabel,
+		entry.durationLabel
+	]);
+	return [header, ...rows].map((row) => row.map(escape).join(',')).join('\n');
+}
+
+async function copySummary(context: vscode.ExtensionContext): Promise<void> {
+	const state = buildState(context);
+	await vscode.env.clipboard.writeText(buildSummaryText(state));
+	vscode.window.showInformationMessage('Timesheet summary copied to clipboard.');
+}
+
+async function exportCsv(context: vscode.ExtensionContext): Promise<void> {
+	const state = buildState(context);
+	const { dayStart } = getDayBounds(viewedDayOffset);
+	const dateIso = formatIstDateIso(dayStart);
+
+	const uri = await vscode.window.showSaveDialog({
+		defaultUri: vscode.Uri.file(path.join(os.homedir(), `dailydev-timesheet-${dateIso}.csv`)),
+		filters: { 'CSV': ['csv'] }
+	});
+	if (!uri) {
+		return;
+	}
+
+	await vscode.workspace.fs.writeFile(uri, Buffer.from(buildCsv(state, dateIso), 'utf8'));
+	vscode.window.showInformationMessage(`Timesheet exported to ${uri.fsPath}`);
 }
 
 function postState(context: vscode.ExtensionContext): void {
@@ -116,6 +196,9 @@ function stopTicking(): void {
 }
 
 async function editEntry(id: number): Promise<void> {
+	if (viewedDayOffset !== 0) {
+		return;
+	}
 	const log = db.getWorkLog(id);
 	if (!log) {
 		return;
@@ -145,6 +228,9 @@ async function editEntry(id: number): Promise<void> {
 }
 
 async function addMissingEntry(): Promise<void> {
+	if (viewedDayOffset !== 0) {
+		return;
+	}
 	const target = await pickTaskTarget();
 	if (!target) {
 		return;
@@ -205,12 +291,21 @@ function getHtml(): string {
 	.totals { margin-top: 20px; }
 	.muted { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
 	.edit-link { cursor: pointer; color: var(--vscode-textLink-foreground); }
+	.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+	button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
 	<div class="section-header">
-		<h2>Today <span class="muted" id="todayLabel"></span></h2>
-		<button id="addEntryBtn">+ Add forgotten entry</button>
+		<h2 id="dateLabel"></h2>
+		<div class="toolbar">
+			<button id="prevDayBtn" class="secondary">◀ Prev day</button>
+			<button id="todayBtn" class="secondary">Today</button>
+			<button id="nextDayBtn" class="secondary">Next day ▶</button>
+			<button id="copySummaryBtn" class="secondary">Copy Summary</button>
+			<button id="exportCsvBtn" class="secondary">Export CSV</button>
+			<button id="addEntryBtn">+ Add forgotten entry</button>
+		</div>
 	</div>
 
 	<div id="activeCard" class="active-card idle">
@@ -239,13 +334,21 @@ function getHtml(): string {
 	}
 
 	document.getElementById('addEntryBtn').addEventListener('click', () => send('addEntry'));
+	document.getElementById('prevDayBtn').addEventListener('click', () => send('prevDay'));
+	document.getElementById('nextDayBtn').addEventListener('click', () => send('nextDay'));
+	document.getElementById('todayBtn').addEventListener('click', () => send('today'));
+	document.getElementById('copySummaryBtn').addEventListener('click', () => send('copySummary'));
+	document.getElementById('exportCsvBtn').addEventListener('click', () => send('exportCsv'));
 
-	function renderActive(active) {
+	function renderActive(active, isToday) {
 		const card = document.getElementById('activeCard');
 		if (!active) {
 			card.classList.add('idle');
-			card.innerHTML = '<div class="muted">No active task</div><div class="buttons"><button id="startBtn">Start Task</button></div>';
-			document.getElementById('startBtn').addEventListener('click', () => send('start'));
+			card.innerHTML = isToday
+				? '<div class="muted">No active task</div><div class="buttons"><button id="startBtn">Start Task</button></div>'
+				: '<div class="muted">Viewing a past day</div>';
+			const startBtn = document.getElementById('startBtn');
+			if (startBtn) { startBtn.addEventListener('click', () => send('start')); }
 			return;
 		}
 		card.classList.remove('idle');
@@ -265,10 +368,10 @@ function getHtml(): string {
 		document.getElementById('switchBtn').addEventListener('click', () => send('switch'));
 	}
 
-	function renderEntries(entries) {
+	function renderEntries(entries, isToday) {
 		const body = document.getElementById('entriesBody');
 		if (!entries.length) {
-			body.innerHTML = '<tr><td colspan="6" class="muted">No entries yet today.</td></tr>';
+			body.innerHTML = '<tr><td colspan="6" class="muted">No entries for this day.</td></tr>';
 			return;
 		}
 		body.innerHTML = entries.map((e) =>
@@ -278,7 +381,7 @@ function getHtml(): string {
 				'<td>' + e.startLabel + '</td>' +
 				'<td>' + e.endLabel + '</td>' +
 				'<td>' + e.durationLabel + '</td>' +
-				'<td><span class="edit-link" data-id="' + e.id + '">Edit</span></td>' +
+				'<td>' + (isToday ? '<span class="edit-link" data-id="' + e.id + '">Edit</span>' : '') + '</td>' +
 			'</tr>'
 		).join('');
 		body.querySelectorAll('.edit-link').forEach((el) => {
@@ -296,10 +399,14 @@ function getHtml(): string {
 	window.addEventListener('message', (event) => {
 		const message = event.data;
 		if (message.type === 'state') {
-			document.getElementById('todayLabel').textContent = '— ' + message.state.todayLabel;
-			renderActive(message.state.active);
-			renderEntries(message.state.entries);
-			renderTotals(message.state.totals, message.state.grandTotalLabel);
+			const state = message.state;
+			document.getElementById('dateLabel').textContent = state.dateLabel;
+			document.getElementById('nextDayBtn').disabled = !state.canGoForward;
+			document.getElementById('todayBtn').disabled = state.isToday;
+			document.getElementById('addEntryBtn').disabled = !state.isToday;
+			renderActive(state.active, state.isToday);
+			renderEntries(state.entries, state.isToday);
+			renderTotals(state.totals, state.grandTotalLabel);
 		}
 	});
 
@@ -316,6 +423,7 @@ export function showDashboard(context: vscode.ExtensionContext): void {
 		return;
 	}
 
+	viewedDayOffset = 0;
 	panel = vscode.window.createWebviewPanel('dailydevDashboard', 'DailyDev Tracker', vscode.ViewColumn.One, {
 		enableScripts: true,
 		retainContextWhenHidden: true
@@ -363,6 +471,23 @@ export function showDashboard(context: vscode.ExtensionContext): void {
 				break;
 			case 'addEntry':
 				await addMissingEntry();
+				break;
+			case 'prevDay':
+				viewedDayOffset += 1;
+				break;
+			case 'nextDay':
+				if (viewedDayOffset > 0) {
+					viewedDayOffset -= 1;
+				}
+				break;
+			case 'today':
+				viewedDayOffset = 0;
+				break;
+			case 'copySummary':
+				await copySummary(context);
+				break;
+			case 'exportCsv':
+				await exportCsv(context);
 				break;
 		}
 		postState(context);

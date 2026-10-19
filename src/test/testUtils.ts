@@ -98,6 +98,59 @@ export function stubStartTaskModal(buildSubmission: (html: string) => StartTaskS
 	};
 }
 
+export interface FakeWebviewPanelHandle {
+	/** Messages the extension host posted back to the webview, in order. */
+	readonly posted: Record<string, unknown>[];
+	/** Simulates the webview sending a message to the extension host (e.g. a button click). */
+	send(message: Record<string, unknown>): void;
+	restore(): void;
+}
+
+/**
+ * Intercepts vscode.window.createWebviewPanel with a bare-bones fake panel that records every
+ * postMessage call and lets the test drive the panel's onDidReceiveMessage handler directly —
+ * for panels like the dashboard that run an ongoing message protocol, rather than resolving once
+ * like the single-shot modals above.
+ */
+export function stubGenericWebviewPanel(): FakeWebviewPanelHandle {
+	const original = vscode.window.createWebviewPanel;
+	const posted: Record<string, unknown>[] = [];
+	let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
+
+	(vscode.window as unknown as { createWebviewPanel: unknown }).createWebviewPanel = () => {
+		const fakePanel = {
+			webview: {
+				postMessage: async (message: Record<string, unknown>) => {
+					posted.push(message);
+					return true;
+				},
+				onDidReceiveMessage: (callback: (message: Record<string, unknown>) => void) => {
+					messageHandler = callback;
+					return { dispose() {} };
+				},
+				set html(_value: string) {},
+				get html() {
+					return '';
+				}
+			},
+			onDidDispose: () => ({ dispose() {} }),
+			onDidChangeViewState: () => ({ dispose() {} }),
+			reveal: () => {},
+			dispose: () => {},
+			visible: true
+		};
+		return fakePanel as unknown as vscode.WebviewPanel;
+	};
+
+	return {
+		posted,
+		send: (message) => messageHandler?.(message),
+		restore: () => {
+			(vscode.window as unknown as { createWebviewPanel: unknown }).createWebviewPanel = original;
+		}
+	};
+}
+
 export function findProjectOptionValue(html: string, projectName: string): string | undefined {
 	const escaped = projectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const match = html.match(new RegExp(`<option value="(p:\\d+)">${escaped}</option>`));
