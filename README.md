@@ -45,6 +45,10 @@ This extension is built to hold real client/project names and task descriptions 
 - **CSV exports are plain text by nature** — the dashboard warns you before exporting, since an exported file is no longer protected by the above.
 - **Scope of protection:** this defends against someone copying the data file later (a backup, a stolen laptop, another user account on the same machine). It is not a defense against malware already running as your own user — no desktop app sandboxing can prevent that.
 
+## Contributing
+
+Changes go through a pull request, not a direct push to `master`: open a branch, push it, open a PR, and wait for the "Build & Test" CI check to pass before merging. This is enforced by branch protection on `master`.
+
 ## Known Issues
 
 - The occasional test run can hit timing flakiness under heavy load in a resource-constrained dev container (e.g. WSL2); this reflects test-environment contention, not a product bug.
