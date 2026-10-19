@@ -8,7 +8,21 @@ import { promptForDurationMinutes } from './prompts';
 import { showStartTaskModal } from './startTaskModal';
 import { WorkLogWithProjectName } from './models';
 import { formatDuration } from './time';
-import { formatIstDateTime } from './istTime';
+import { formatIstDateTime, fromIstComponents, toIstCalendar } from './istTime';
+
+/** Total tracked time so far today (IST calendar day), across all finished entries. */
+function getTodaysTotalMs(): number {
+	const cal = toIstCalendar(new Date());
+	const dayStart = fromIstComponents(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate(), 0, 0, 0);
+	const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+	const logs = db.listFinishedWorkLogsBetween(dayStart.toISOString(), dayEnd.toISOString());
+	const totalSeconds = logs.reduce((sum, log) => sum + (log.durationSeconds ?? 0), 0);
+	return totalSeconds * 1000;
+}
+
+function formatStoppedMessage(stopped: { label: string; description: string; durationSeconds: number }): string {
+	return `Stopped: ${stopped.label} — ${stopped.description} (${formatDuration(stopped.durationSeconds * 1000)}) · Today's total: ${formatDuration(getTodaysTotalMs())}`;
+}
 
 async function startNewTaskFlow(context: vscode.ExtensionContext): Promise<void> {
 	const result = await showStartTaskModal();
@@ -22,9 +36,7 @@ async function startNewTaskFlow(context: vscode.ExtensionContext): Promise<void>
 async function switchTaskFlow(context: vscode.ExtensionContext): Promise<void> {
 	const stopped = await session.stopSession(context);
 	if (stopped) {
-		vscode.window.showInformationMessage(
-			`Stopped: ${stopped.label} — ${stopped.description} (${formatDuration(stopped.durationSeconds * 1000)})`
-		);
+		vscode.window.showInformationMessage(formatStoppedMessage(stopped));
 	}
 	await startNewTaskFlow(context);
 }
@@ -98,9 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			vscode.window.showWarningMessage('No active task to stop.');
 			return;
 		}
-		vscode.window.showInformationMessage(
-			`Stopped: ${result.label} — ${result.description} (${formatDuration(result.durationSeconds * 1000)})`
-		);
+		vscode.window.showInformationMessage(formatStoppedMessage(result));
 	});
 
 	const showActiveTaskMenuCommand = vscode.commands.registerCommand('dailydev-tracker.showActiveTaskMenu', async () => {
