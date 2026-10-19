@@ -42,3 +42,13 @@ export function formatIstDateTime(instant: Date): string {
 	const cal = toIstCalendar(instant);
 	return `${cal.getUTCMonth() + 1}/${cal.getUTCDate()}/${cal.getUTCFullYear()}, ${formatIstTime12h(instant)}`;
 }
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function formatIstDateLong(instant: Date): string {
+	const cal = toIstCalendar(instant);
+	const weekday = WEEKDAY_NAMES[cal.getUTCDay()];
+	const month = MONTH_NAMES[cal.getUTCMonth()];
+	return `${weekday}, ${cal.getUTCDate()} ${month} ${cal.getUTCFullYear()}`;
+}

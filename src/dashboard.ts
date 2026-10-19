@@ -4,7 +4,7 @@ import * as session from './session';
 import { pickTaskTarget, promptForTaskDescription } from './taskPicker';
 import { promptForDurationMinutes, promptForDescriptionEdit } from './prompts';
 import { formatDuration } from './time';
-import { formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
+import { formatIstDateLong, formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
 
 let panel: vscode.WebviewPanel | undefined;
 let tickInterval: ReturnType<typeof setInterval> | undefined;
@@ -24,6 +24,7 @@ interface DashboardEntry {
 	projectName: string;
 	description: string;
 	startLabel: string;
+	endLabel: string;
 	durationLabel: string;
 	durationSeconds: number;
 }
@@ -45,6 +46,7 @@ interface DashboardState {
 	entries: DashboardEntry[];
 	totals: ProjectTotal[];
 	grandTotalLabel: string;
+	todayLabel: string;
 }
 
 function getTodayBounds(): { startIso: string; endIso: string } {
@@ -73,6 +75,7 @@ function buildState(context: vscode.ExtensionContext): DashboardState {
 		projectName: log.projectName,
 		description: log.description,
 		startLabel: formatIstTime12h(new Date(log.startTime)),
+		endLabel: log.endTime ? formatIstTime12h(new Date(log.endTime)) : '—',
 		durationLabel: formatDuration((log.durationSeconds ?? 0) * 1000),
 		durationSeconds: log.durationSeconds ?? 0
 	}));
@@ -87,7 +90,13 @@ function buildState(context: vscode.ExtensionContext): DashboardState {
 	}));
 	const grandTotalSeconds = entries.reduce((sum, entry) => sum + entry.durationSeconds, 0);
 
-	return { active, entries, totals, grandTotalLabel: formatDuration(grandTotalSeconds * 1000) };
+	return {
+		active,
+		entries,
+		totals,
+		grandTotalLabel: formatDuration(grandTotalSeconds * 1000),
+		todayLabel: formatIstDateLong(new Date())
+	};
 }
 
 function postState(context: vscode.ExtensionContext): void {
@@ -200,7 +209,7 @@ function getHtml(): string {
 </head>
 <body>
 	<div class="section-header">
-		<h2>Today</h2>
+		<h2>Today <span class="muted" id="todayLabel"></span></h2>
 		<button id="addEntryBtn">+ Add forgotten entry</button>
 	</div>
 
@@ -210,8 +219,8 @@ function getHtml(): string {
 	</div>
 
 	<table id="entriesTable">
-		<thead><tr><th>Project</th><th>Task</th><th>Start</th><th>Duration</th><th></th></tr></thead>
-		<tbody id="entriesBody"><tr><td colspan="5" class="muted">No entries yet today.</td></tr></tbody>
+		<thead><tr><th>Project</th><th>Task</th><th>Start</th><th>End</th><th>Duration</th><th></th></tr></thead>
+		<tbody id="entriesBody"><tr><td colspan="6" class="muted">No entries yet today.</td></tr></tbody>
 	</table>
 
 	<div class="totals">
@@ -259,7 +268,7 @@ function getHtml(): string {
 	function renderEntries(entries) {
 		const body = document.getElementById('entriesBody');
 		if (!entries.length) {
-			body.innerHTML = '<tr><td colspan="5" class="muted">No entries yet today.</td></tr>';
+			body.innerHTML = '<tr><td colspan="6" class="muted">No entries yet today.</td></tr>';
 			return;
 		}
 		body.innerHTML = entries.map((e) =>
@@ -267,6 +276,7 @@ function getHtml(): string {
 				'<td>' + escapeHtml(e.projectName) + '</td>' +
 				'<td>' + escapeHtml(e.description) + '</td>' +
 				'<td>' + e.startLabel + '</td>' +
+				'<td>' + e.endLabel + '</td>' +
 				'<td>' + e.durationLabel + '</td>' +
 				'<td><span class="edit-link" data-id="' + e.id + '">Edit</span></td>' +
 			'</tr>'
@@ -286,6 +296,7 @@ function getHtml(): string {
 	window.addEventListener('message', (event) => {
 		const message = event.data;
 		if (message.type === 'state') {
+			document.getElementById('todayLabel').textContent = '— ' + message.state.todayLabel;
 			renderActive(message.state.active);
 			renderEntries(message.state.entries);
 			renderTotals(message.state.totals, message.state.grandTotalLabel);
