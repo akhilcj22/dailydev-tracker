@@ -4,6 +4,10 @@ All notable changes to the "dailydev-tracker" extension will be documented in th
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+- The "Stopped" notification (from Stop Task or Switch Task) now also shows today's running total tracked time.
+
 ## [0.2.0]
 
 Security & data protection.

@@ -87,6 +87,10 @@ suite('time tracking', () => {
 				'expected a Stopped message with a formatted duration'
 			);
 			assert.ok(
+				infoMessages.some((m) => m.startsWith('Stopped:') && m.includes("Today's total:")),
+				'expected the Stopped message to include today\'s running total'
+			);
+			assert.ok(
 				warningMessages.some((m) => m.includes('No active task to stop')),
 				'the second stopTask call should warn that nothing is active'
 			);
