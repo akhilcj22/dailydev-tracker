@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -7,6 +8,111 @@ import { NewWorkLog, Project, WorkCategory, WorkLog, WorkLogWithProjectName } fr
 let sql: import('sql.js').SqlJsStatic;
 let db: import('sql.js').Database;
 let dbFilePath: string;
+let dbKey: Buffer;
+
+const DB_KEY_SECRET_ID = 'dailydev-tracker.dbEncryptionKey';
+const USE_FALLBACK_KEY_STORAGE_FLAG = 'dailydev-tracker.useFallbackKeyStorage';
+const FALLBACK_KEY_FILENAME = '.dailydev-tracker.key';
+const SECRET_STORAGE_TIMEOUT_MS = 3000;
+// Real SQLite files start with this magic header; used to detect a pre-encryption (0.1.0 and
+// earlier) plaintext data file so it can be migrated in place instead of being quarantined as corrupt.
+const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'utf8');
+
+/** Exported so the resilience mechanism can be unit-tested with a short artificial delay, without waiting out the real SECRET_STORAGE_TIMEOUT_MS on every test run. */
+export const TIMED_OUT = Symbol('secret-storage-timed-out');
+
+/**
+ * VS Code's SecretStorage relies on an OS keychain (Credential Manager / Keychain / Linux
+ * Secret Service). On a Linux box with no secret-service daemon running — a bare WSL2 install,
+ * for instance — a call into it can hang for several seconds (or longer) instead of failing
+ * fast. Racing it against a timeout keeps a missing keychain from blocking extension activation.
+ */
+export function withTimeout<T>(promise: Thenable<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+	return new Promise((resolve) => {
+		let settled = false;
+		const timer = setTimeout(() => {
+			if (!settled) {
+				settled = true;
+				resolve(TIMED_OUT);
+			}
+		}, ms);
+		Promise.resolve(promise).then(
+			(value) => {
+				if (!settled) {
+					settled = true;
+					clearTimeout(timer);
+					resolve(value);
+				}
+			},
+			() => {
+				if (!settled) {
+					settled = true;
+					clearTimeout(timer);
+					resolve(TIMED_OUT);
+				}
+			}
+		);
+	});
+}
+
+function readOrCreateFallbackKeyFile(storageDir: string): Buffer {
+	const fallbackKeyPath = path.join(storageDir, FALLBACK_KEY_FILENAME);
+	if (fs.existsSync(fallbackKeyPath)) {
+		return fs.readFileSync(fallbackKeyPath);
+	}
+	const key = crypto.randomBytes(32);
+	fs.writeFileSync(fallbackKeyPath, key);
+	try {
+		fs.chmodSync(fallbackKeyPath, 0o600);
+	} catch {
+		// Best-effort; see the matching comment in persist().
+	}
+	return key;
+}
+
+/**
+ * Prefers the OS keychain via SecretStorage; falls back to a file-based key (still random,
+ * still file-permission-restricted) when the keychain is slow or unavailable, and remembers that
+ * choice in globalState so later activations go straight to the fallback instead of re-paying a
+ * multi-second delay on every startup.
+ */
+async function getOrCreateKey(context: vscode.ExtensionContext, storageDir: string): Promise<Buffer> {
+	const alreadyUsingFallback = context.globalState.get<boolean>(USE_FALLBACK_KEY_STORAGE_FLAG, false);
+
+	if (!alreadyUsingFallback) {
+		const existing = await withTimeout(context.secrets.get(DB_KEY_SECRET_ID), SECRET_STORAGE_TIMEOUT_MS);
+		if (existing !== TIMED_OUT) {
+			if (existing) {
+				return Buffer.from(existing, 'base64');
+			}
+			const key = crypto.randomBytes(32);
+			const stored = await withTimeout(context.secrets.store(DB_KEY_SECRET_ID, key.toString('base64')), SECRET_STORAGE_TIMEOUT_MS);
+			if (stored !== TIMED_OUT) {
+				return key;
+			}
+		}
+		await context.globalState.update(USE_FALLBACK_KEY_STORAGE_FLAG, true);
+	}
+
+	return readOrCreateFallbackKeyFile(storageDir);
+}
+
+/** AES-256-GCM: random 12-byte IV and 16-byte auth tag are stored alongside the ciphertext. */
+function encrypt(data: Buffer): Buffer {
+	const iv = crypto.randomBytes(12);
+	const cipher = crypto.createCipheriv('aes-256-gcm', dbKey, iv);
+	const ciphertext = Buffer.concat([cipher.update(data), cipher.final()]);
+	return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]);
+}
+
+function decrypt(data: Buffer): Buffer {
+	const iv = data.subarray(0, 12);
+	const authTag = data.subarray(12, 28);
+	const ciphertext = data.subarray(28);
+	const decipher = crypto.createDecipheriv('aes-256-gcm', dbKey, iv);
+	decipher.setAuthTag(authTag);
+	return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
 
 const SCHEMA = `
 	CREATE TABLE IF NOT EXISTS projects (
@@ -30,20 +136,26 @@ export async function init(context: vscode.ExtensionContext): Promise<void> {
 	const storageDir = context.globalStorageUri.fsPath;
 	fs.mkdirSync(storageDir, { recursive: true });
 	dbFilePath = path.join(storageDir, 'dailydev-tracker.sqlite');
+	dbKey = await getOrCreateKey(context, storageDir);
 
 	sql = await initSqlJs({
 		locateFile: (file: string) => path.join(__dirname, file)
 	});
 
-	const existing = fs.existsSync(dbFilePath) ? fs.readFileSync(dbFilePath) : undefined;
+	const onDisk = fs.existsSync(dbFilePath) ? fs.readFileSync(dbFilePath) : undefined;
 	try {
+		const isLegacyPlaintext = onDisk && onDisk.subarray(0, SQLITE_MAGIC.length).equals(SQLITE_MAGIC);
+		// A legacy plaintext file (from before encryption-at-rest) is migrated in place: load it as-is,
+		// then the unconditional persist() below re-saves it encrypted.
+		const existing = isLegacyPlaintext ? onDisk : onDisk ? decrypt(onDisk) : undefined;
 		db = new sql.Database(existing);
 		db.run(SCHEMA);
 	} catch (error) {
-		// A corrupted data file would otherwise crash activate() on every startup, permanently
-		// bricking the extension. Quarantine it and start fresh so tracking keeps working — losing
-		// unreadable history is better than losing the extension entirely.
-		if (existing) {
+		// A corrupted (or unreadable — e.g. wrong/lost key) data file would otherwise crash
+		// activate() on every startup, permanently bricking the extension. Quarantine it and start
+		// fresh so tracking keeps working — losing unreadable history is better than losing the
+		// extension entirely.
+		if (onDisk) {
 			const quarantinePath = `${dbFilePath}.corrupt-${Date.now()}`;
 			fs.renameSync(dbFilePath, quarantinePath);
 			vscode.window.showErrorMessage(
@@ -57,8 +169,16 @@ export async function init(context: vscode.ExtensionContext): Promise<void> {
 }
 
 function persist(): void {
-	const data = Buffer.from(db.export());
+	const data = encrypt(Buffer.from(db.export()));
 	fs.writeFileSync(dbFilePath, data);
+	try {
+		// Best-effort: restrict the data file to the current OS user. Some filesystems (exFAT,
+		// some Windows configurations) don't support POSIX permission bits — encryption at rest is
+		// the primary protection, this is defense in depth where the OS allows it.
+		fs.chmodSync(dbFilePath, 0o600);
+	} catch {
+		// Ignored — see comment above.
+	}
 }
 
 export function addProject(name: string): Project {

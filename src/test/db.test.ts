@@ -4,13 +4,18 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as db from '../db';
+import { createFakeGlobalState, createFakeSecretStorage } from './testUtils';
 
 suite('db', () => {
 	// Uses its own isolated SQLite file under a fresh temp dir, independent of the live
 	// extension's data — this exercises db.ts's query logic directly, not through commands.
 	async function freshDb(): Promise<void> {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dailydev-tracker-db-test-'));
-		const fakeContext = { globalStorageUri: vscode.Uri.file(dir) } as unknown as vscode.ExtensionContext;
+		const fakeContext = {
+			globalStorageUri: vscode.Uri.file(dir),
+			secrets: createFakeSecretStorage(),
+			globalState: createFakeGlobalState()
+		} as unknown as vscode.ExtensionContext;
 		await db.init(fakeContext);
 	}
 

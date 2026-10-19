@@ -4,6 +4,16 @@ All notable changes to the "dailydev-tracker" extension will be documented in th
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.2.0]
+
+Security & data protection.
+
+- The SQLite data file is now encrypted at rest (AES-256-GCM), with the key stored in your OS keychain via VS Code's `SecretStorage` API (falling back to a restricted local file if no keychain is available).
+- The data file (and fallback key file) is restricted to the current OS user.
+- A pre-existing plaintext database from 0.1.0 is migrated to the encrypted format automatically on first load.
+- An ESLint rule now fails the build if any networking API (`http`/`https`/`net`/`dgram`/`tls`/`fetch`) is ever imported, enforcing the "no network calls" invariant.
+- CSV export now warns that the exported file is plain text before writing it.
+
 ## [0.1.0]
 
 First feature-complete release.

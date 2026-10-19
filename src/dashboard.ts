@@ -163,6 +163,15 @@ async function copySummary(context: vscode.ExtensionContext): Promise<void> {
 }
 
 async function exportCsv(context: vscode.ExtensionContext): Promise<void> {
+	const proceed = await vscode.window.showWarningMessage(
+		"Unlike DailyDev Tracker's encrypted storage, the exported CSV file is plain text. Make sure you handle it the same way you'd handle any other exported company data.",
+		{ modal: true },
+		'Export Anyway'
+	);
+	if (proceed !== 'Export Anyway') {
+		return;
+	}
+
 	const state = buildState(context);
 	const { dayStart } = getDayBounds(viewedDayOffset);
 	const dateIso = formatIstDateIso(dayStart);

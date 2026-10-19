@@ -5,12 +5,14 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import * as db from '../db';
 import * as session from '../session';
+import { createFakeGlobalState, createFakeSecretStorage } from './testUtils';
 
 suite('crash recovery (Phase 7)', () => {
 	async function freshContext(): Promise<vscode.ExtensionContext> {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dailydev-tracker-crash-test-'));
 		const fakeContext = {
 			globalStorageUri: vscode.Uri.file(dir),
+			secrets: createFakeSecretStorage(),
 			globalState: (() => {
 				const store = new Map<string, unknown>();
 				return {
@@ -120,7 +122,11 @@ suite('crash recovery (Phase 7)', () => {
 		};
 
 		try {
-			const fakeContext = { globalStorageUri: vscode.Uri.file(dir) } as unknown as vscode.ExtensionContext;
+			const fakeContext = {
+				globalStorageUri: vscode.Uri.file(dir),
+				secrets: createFakeSecretStorage(),
+				globalState: createFakeGlobalState()
+			} as unknown as vscode.ExtensionContext;
 			await db.init(fakeContext);
 
 			// The extension must still be usable after recovering from corruption.

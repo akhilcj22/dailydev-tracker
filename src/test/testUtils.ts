@@ -1,6 +1,44 @@
 import * as vscode from 'vscode';
 import { formatIstTime24h } from '../istTime';
 
+/**
+ * In-memory SecretStorage stand-in for tests that construct a fake ExtensionContext directly
+ * (db.init needs `context.secrets` to get/create its encryption key).
+ */
+export function createFakeSecretStorage(): {
+	get: (key: string) => Thenable<string | undefined>;
+	store: (key: string, value: string) => Thenable<void>;
+	delete: (key: string) => Thenable<void>;
+} {
+	const store = new Map<string, string>();
+	return {
+		get: async (key) => store.get(key),
+		store: async (key, value) => {
+			store.set(key, value);
+		},
+		delete: async (key) => {
+			store.delete(key);
+		}
+	};
+}
+
+/**
+ * In-memory globalState stand-in for tests that construct a fake ExtensionContext directly
+ * (db.init reads/writes a flag here to remember when SecretStorage is unavailable).
+ */
+export function createFakeGlobalState(): {
+	get: <T>(key: string, defaultValue?: T) => T | undefined;
+	update: (key: string, value: unknown) => Thenable<void>;
+} {
+	const store = new Map<string, unknown>();
+	return {
+		get: <T>(key: string, defaultValue?: T) => (store.has(key) ? (store.get(key) as T) : defaultValue),
+		update: async (key, value) => {
+			store.set(key, value);
+		}
+	};
+}
+
 function createFakePanel(onMessageRegistered: (messageHandler: (message: Record<string, unknown>) => void) => void) {
 	let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
 	let capturedHtml = '';

@@ -2,7 +2,7 @@
   "name": "dailydev-tracker",
   "displayName": "DailyDev Tracker",
   "description": "Track daily tasks, project-wise working time, client support, and generate daily timesheet summaries.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "akhilcj22",
   "repository": {
     "type": "git",
