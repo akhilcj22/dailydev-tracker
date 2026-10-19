@@ -1,71 +1,45 @@
-# dailydev-tracker README
+# DailyDev Tracker
 
-This is the README for your extension "dailydev-tracker". After writing up a brief description, we recommend including the following sections.
+Track daily tasks and project-wise working time directly from VS Code — start/pause/stop a timer, review a dashboard of today's (or any past day's) work, get a configurable end-of-day reminder, and copy or export a ready-to-send timesheet.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **Start/Pause/Resume/Stop/Switch** a task against a project or "Client Support" (for debugging/troubleshooting work that isn't tied to a specific project).
+- **Status bar timer** — click it for a quick Pause/Stop/Switch menu while a task is running.
+- **Dashboard** (`DailyDev: Show Dashboard`) — the active task with a live timer, today's entries with project totals, inline editing, backdated/forgotten-entry entry, and navigation to review any past day.
+- **Copy Summary / Export CSV** from the dashboard — a project-grouped, timesheet-ready summary for pasting into a company timesheet, or a CSV for the same day's entries.
+- **Daily reminder** at a configurable time and set of working days, with catch-up if VS Code was closed when it was due.
+- **Crash recovery** — an unfinished session survives a VS Code restart and is restored on next launch.
+- All data is stored locally in a SQLite file under VS Code's per-extension storage; nothing is sent over the network.
 
-For example if there is an image subfolder under your extension project workspace:
+## Commands
 
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+| Command | Description |
+|---|---|
+| `DailyDev: Start Task` | Pick a project (or Client Support) and describe the task to begin tracking. |
+| `DailyDev: Add Project` | Add a new project without starting a task. |
+| `DailyDev: Switch Task` | Stop the current task and start a new one in one step. |
+| `DailyDev: Pause Task` / `DailyDev: Resume Task` | Pause or resume the active task's timer. |
+| `DailyDev: Stop Task` | Stop and record the active task. |
+| `DailyDev: Task Menu` | Quick menu for the active task (Pause/Resume/Stop/Switch). |
+| `DailyDev: Correct Entry Duration` | Fix the duration of a past entry. |
+| `DailyDev: Show Dashboard` | Open the task dashboard. |
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+This extension contributes the following settings (`Ctrl+,` → search "DailyDev"):
 
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- `dailydevTracker.reminderEnabled` — show a daily reminder to review tracked tasks (default: `true`).
+- `dailydevTracker.reminderTime` — 24-hour `HH:mm` time for the reminder (default: `18:00`).
+- `dailydevTracker.workingDays` — which weekdays to show the reminder on (default: Mon–Fri).
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- The occasional test run can hit timing flakiness under heavy load in a resource-constrained dev container (e.g. WSL2); this reflects test-environment contention, not a product bug.
+- Data is currently stored unencrypted on disk; encryption at rest is planned.
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.1.0
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+First feature-complete release: project/task management, automatic time tracking with pause/resume/switch and crash recovery, the task dashboard, scheduled reminders, and the daily timesheet summary (copy/export/past-day review).

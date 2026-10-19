@@ -4,7 +4,7 @@ import { stubStartTaskModal } from './testUtils';
 
 suite('startTask command smoke test', () => {
 	test('starts a task against a newly created project and shows both in an info message', async () => {
-		const extension = vscode.extensions.getExtension('undefined_publisher.dailydev-tracker');
+		const extension = vscode.extensions.getExtension('akhilcj22.dailydev-tracker');
 		assert.ok(extension, 'extension should be discoverable by id');
 		await extension!.activate();
 

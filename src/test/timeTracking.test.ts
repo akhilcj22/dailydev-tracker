@@ -32,7 +32,7 @@ suite('time tracking', () => {
 
 	suite('command flow', () => {
 		async function getExtension(): Promise<vscode.Extension<unknown>> {
-			const extension = vscode.extensions.getExtension('undefined_publisher.dailydev-tracker');
+			const extension = vscode.extensions.getExtension('akhilcj22.dailydev-tracker');
 			assert.ok(extension, 'extension should be discoverable by id');
 			await extension!.activate();
 			return extension!;

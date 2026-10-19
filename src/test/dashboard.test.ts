@@ -8,7 +8,7 @@ suite('dashboard', () => {
 	// reuses its module-level panel once created (across the whole extension-host process, not
 	// just this test), so a stubbed createWebviewPanel only gets exercised while no panel exists yet.
 	test('Phase 6: prev/next day navigation and Copy Summary reflect the viewed day', async () => {
-		const extension = vscode.extensions.getExtension('undefined_publisher.dailydev-tracker');
+		const extension = vscode.extensions.getExtension('akhilcj22.dailydev-tracker');
 		await extension!.activate();
 
 		const originalShowInformationMessage = vscode.window.showInformationMessage;
@@ -46,7 +46,7 @@ suite('dashboard', () => {
 	});
 
 	test('showDashboard renders without throwing, idle and with an active session', async () => {
-		const extension = vscode.extensions.getExtension('undefined_publisher.dailydev-tracker');
+		const extension = vscode.extensions.getExtension('akhilcj22.dailydev-tracker');
 		assert.ok(extension, 'extension should be discoverable by id');
 		await extension!.activate();
 

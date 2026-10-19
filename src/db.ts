@@ -36,8 +36,23 @@ export async function init(context: vscode.ExtensionContext): Promise<void> {
 	});
 
 	const existing = fs.existsSync(dbFilePath) ? fs.readFileSync(dbFilePath) : undefined;
-	db = new sql.Database(existing);
-	db.run(SCHEMA);
+	try {
+		db = new sql.Database(existing);
+		db.run(SCHEMA);
+	} catch (error) {
+		// A corrupted data file would otherwise crash activate() on every startup, permanently
+		// bricking the extension. Quarantine it and start fresh so tracking keeps working — losing
+		// unreadable history is better than losing the extension entirely.
+		if (existing) {
+			const quarantinePath = `${dbFilePath}.corrupt-${Date.now()}`;
+			fs.renameSync(dbFilePath, quarantinePath);
+			vscode.window.showErrorMessage(
+				`DailyDev Tracker's data file was unreadable and has been moved to ${quarantinePath}. Starting with a fresh database.`
+			);
+		}
+		db = new sql.Database();
+		db.run(SCHEMA);
+	}
 	persist();
 }
 

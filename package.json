@@ -1,8 +1,13 @@
 {
   "name": "dailydev-tracker",
-  "displayName": "dailydev-tracker",
+  "displayName": "DailyDev Tracker",
   "description": "Track daily tasks, project-wise working time, client support, and generate daily timesheet summaries.",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "publisher": "akhilcj22",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/akhilcj22/dailydev-tracker.git"
+  },
   "engines": {
     "vscode": "^1.140.0"
   },
@@ -69,10 +74,24 @@
         },
         "dailydevTracker.workingDays": {
           "type": "array",
-          "default": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+          "default": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
           "items": {
             "type": "string",
-            "enum": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            "enum": [
+              "Sun",
+              "Mon",
+              "Tue",
+              "Wed",
+              "Thu",
+              "Fri",
+              "Sat"
+            ]
           },
           "description": "Days of the week to show the daily reminder."
         }
@@ -91,7 +110,8 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "package:vsix": "vsce package"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -100,6 +120,7 @@
     "@types/vscode": "^1.140.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
     "npm-run-all": "^4.1.5",
