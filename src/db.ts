@@ -260,6 +260,12 @@ export function finishWorkLog(id: number, endTime: string, durationSeconds: numb
 	persist();
 }
 
+/** Clears end_time/duration on an already-finished row so a resumed stint can be merged back into it on stop. */
+export function reopenWorkLog(id: number): void {
+	db.run('UPDATE work_logs SET end_time = NULL, duration_seconds = NULL WHERE id = ?', [id]);
+	persist();
+}
+
 export function listFinishedWorkLogs(limit: number): WorkLogWithProjectName[] {
 	const result = db.exec(
 		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds,

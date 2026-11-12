@@ -39,4 +39,6 @@ export interface ActiveSession {
 	accumulatedPauseMs: number;
 	/** Set while paused; the moment the current pause began. */
 	pausedAt: string | null;
+	/** Duration already logged against workLogId from earlier stints, added on top when this one stops. */
+	priorDurationMs?: number;
 }

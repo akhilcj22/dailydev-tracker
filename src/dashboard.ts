@@ -169,7 +169,7 @@ async function resumeEntry(context: vscode.ExtensionContext, id: number): Promis
 		log.category === 'client-support'
 			? '$(law) Client Support'
 			: (db.listProjects().find((p) => p.id === log.projectId)?.name ?? 'Unknown project');
-	await session.beginSession(context, { projectId: log.projectId, category: log.category, label }, log.description);
+	await session.resumeWorkLog(context, log, label, log.description);
 	vscode.window.showInformationMessage(`Resumed: ${label} — ${log.description}`);
 }
 
