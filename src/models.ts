@@ -15,6 +15,8 @@ export interface WorkLog {
 	startTime: string;
 	endTime: string | null;
 	durationSeconds: number | null;
+	/** True once the task has been explicitly marked Complete; such entries are no longer offered for Resume. */
+	completed: boolean;
 }
 
 export interface NewWorkLog {
