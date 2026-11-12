@@ -15,6 +15,8 @@ export interface WorkLog {
 	startTime: string;
 	endTime: string | null;
 	durationSeconds: number | null;
+	/** True once the task has been explicitly marked Complete; such entries are no longer offered for Resume. */
+	completed: boolean;
 }
 
 export interface NewWorkLog {
@@ -39,4 +41,6 @@ export interface ActiveSession {
 	accumulatedPauseMs: number;
 	/** Set while paused; the moment the current pause began. */
 	pausedAt: string | null;
+	/** Duration already logged against workLogId from earlier stints, added on top when this one stops. */
+	priorDurationMs?: number;
 }
