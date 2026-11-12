@@ -141,6 +141,15 @@ export interface FakeWebviewPanelHandle {
 	readonly posted: Record<string, unknown>[];
 	/** Simulates the webview sending a message to the extension host (e.g. a button click). */
 	send(message: Record<string, unknown>): void;
+	/**
+	 * Simulates the user closing the panel, firing the extension's real onDidDispose handler.
+	 * The test file's own `import * as dashboard from '../dashboard'` is a *different* module
+	 * instance than the one actually running inside the extension host (that one is bundled into
+	 * dist/extension.js by esbuild) — so calling the imported module's `dispose()` does not reset
+	 * the live panel. This is the only reliable way to make the extension drop its reference to
+	 * this fake panel before the next test stubs a new one.
+	 */
+	closePanel(): void;
 	restore(): void;
 }
 
@@ -154,6 +163,7 @@ export function stubGenericWebviewPanel(): FakeWebviewPanelHandle {
 	const original = vscode.window.createWebviewPanel;
 	const posted: Record<string, unknown>[] = [];
 	let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
+	let disposeHandler: (() => void) | undefined;
 
 	(vscode.window as unknown as { createWebviewPanel: unknown }).createWebviewPanel = () => {
 		const fakePanel = {
@@ -171,10 +181,15 @@ export function stubGenericWebviewPanel(): FakeWebviewPanelHandle {
 					return '';
 				}
 			},
-			onDidDispose: () => ({ dispose() {} }),
+			onDidDispose: (callback: () => void) => {
+				disposeHandler = callback;
+				return { dispose() {} };
+			},
 			onDidChangeViewState: () => ({ dispose() {} }),
 			reveal: () => {},
-			dispose: () => {},
+			dispose: () => {
+				disposeHandler?.();
+			},
 			visible: true
 		};
 		return fakePanel as unknown as vscode.WebviewPanel;
@@ -183,6 +198,7 @@ export function stubGenericWebviewPanel(): FakeWebviewPanelHandle {
 	return {
 		posted,
 		send: (message) => messageHandler?.(message),
+		closePanel: () => disposeHandler?.(),
 		restore: () => {
 			(vscode.window as unknown as { createWebviewPanel: unknown }).createWebviewPanel = original;
 		}
