@@ -23,7 +23,7 @@ export async function promptForProjectName(): Promise<string | undefined> {
 	const name = await showModalInput({
 		title: 'Add Project',
 		prompt: 'Project name',
-		placeholder: 'ERPNext / Grain N Grace',
+		placeholder: 'e.g. Website Redesign',
 		validate: (value) => {
 			if (!value.trim()) {
 				return 'Project name cannot be empty';
@@ -41,7 +41,7 @@ export async function promptForTaskDescription(promptText = 'What task are you g
 	const task = await showModalInput({
 		title: 'Task Description',
 		prompt: promptText,
-		placeholder: 'Fix Delivery Tracker report',
+		placeholder: 'e.g. Fix login bug',
 		validate: (value) => (value.trim() ? undefined : 'Task description cannot be empty')
 	});
 	return task?.trim();
