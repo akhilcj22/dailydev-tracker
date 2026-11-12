@@ -1,12 +1,10 @@
-import * as path from 'path';
-import * as os from 'os';
 import * as vscode from 'vscode';
 import * as db from './db';
 import * as session from './session';
 import { pickTaskTarget, promptForTaskDescription } from './taskPicker';
 import { promptForDurationMinutes, promptForDescriptionEdit } from './prompts';
 import { formatDuration } from './time';
-import { formatIstDateIso, formatIstDateLong, formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
+import { formatIstDateLong, formatIstTime12h, fromIstComponents, toIstCalendar } from './istTime';
 
 let panel: vscode.WebviewPanel | undefined;
 let tickInterval: ReturnType<typeof setInterval> | undefined;
@@ -52,7 +50,6 @@ export interface DashboardState {
 	grandTotalLabel: string;
 	dateLabel: string;
 	isToday: boolean;
-	canGoForward: boolean;
 }
 
 function getDayBounds(offsetDays: number): { startIso: string; endIso: string; dayStart: Date } {
@@ -104,88 +101,8 @@ function buildState(context: vscode.ExtensionContext): DashboardState {
 		totals,
 		grandTotalLabel: formatDuration(grandTotalSeconds * 1000),
 		dateLabel: isToday ? `Today — ${formatIstDateLong(dayStart)}` : formatIstDateLong(dayStart),
-		isToday,
-		canGoForward: viewedDayOffset > 0
+		isToday
 	};
-}
-
-export function buildSummaryText(state: DashboardState): string {
-	const lines: string[] = [`DailyDev Tracker — ${state.dateLabel}`, ''];
-
-	const byProject = new Map<string, DashboardEntry[]>();
-	for (const entry of state.entries) {
-		const list = byProject.get(entry.projectName) ?? [];
-		list.push(entry);
-		byProject.set(entry.projectName, list);
-	}
-
-	if (byProject.size === 0) {
-		lines.push('No tracked entries.');
-	} else {
-		for (const [projectName, entries] of byProject) {
-			lines.push(projectName);
-			for (const entry of entries) {
-				lines.push(`  ${entry.startLabel} - ${entry.endLabel}  ${entry.description}  (${entry.durationLabel})`);
-			}
-			const subtotal = entries.reduce((sum, e) => sum + e.durationSeconds, 0);
-			lines.push(`  Subtotal: ${formatDuration(subtotal * 1000)}`);
-			lines.push('');
-		}
-	}
-
-	lines.push(`Total: ${state.grandTotalLabel}`);
-	return lines.join('\n');
-}
-
-export function buildCsv(state: DashboardState, dateIso: string): string {
-	const escape = (value: string): string => {
-		if (/[",\n]/.test(value)) {
-			return `"${value.replace(/"/g, '""')}"`;
-		}
-		return value;
-	};
-	const header = ['Date', 'Project', 'Task', 'Start', 'End', 'Duration'];
-	const rows = state.entries.map((entry) => [
-		dateIso,
-		entry.projectName,
-		entry.description,
-		entry.startLabel,
-		entry.endLabel,
-		entry.durationLabel
-	]);
-	return [header, ...rows].map((row) => row.map(escape).join(',')).join('\n');
-}
-
-async function copySummary(context: vscode.ExtensionContext): Promise<void> {
-	const state = buildState(context);
-	await vscode.env.clipboard.writeText(buildSummaryText(state));
-	vscode.window.showInformationMessage('Timesheet summary copied to clipboard.');
-}
-
-async function exportCsv(context: vscode.ExtensionContext): Promise<void> {
-	const proceed = await vscode.window.showWarningMessage(
-		"Unlike DailyDev Tracker's encrypted storage, the exported CSV file is plain text. Make sure you handle it the same way you'd handle any other exported company data.",
-		{ modal: true },
-		'Export Anyway'
-	);
-	if (proceed !== 'Export Anyway') {
-		return;
-	}
-
-	const state = buildState(context);
-	const { dayStart } = getDayBounds(viewedDayOffset);
-	const dateIso = formatIstDateIso(dayStart);
-
-	const uri = await vscode.window.showSaveDialog({
-		defaultUri: vscode.Uri.file(path.join(os.homedir(), `dailydev-timesheet-${dateIso}.csv`)),
-		filters: { 'CSV': ['csv'] }
-	});
-	if (!uri) {
-		return;
-	}
-
-	await vscode.workspace.fs.writeFile(uri, Buffer.from(buildCsv(state, dateIso), 'utf8'));
-	vscode.window.showInformationMessage(`Timesheet exported to ${uri.fsPath}`);
 }
 
 function postState(context: vscode.ExtensionContext): void {
@@ -310,9 +227,6 @@ function getHtml(): string {
 		<div class="toolbar">
 			<button id="prevDayBtn" class="secondary">◀ Prev day</button>
 			<button id="todayBtn" class="secondary">Today</button>
-			<button id="nextDayBtn" class="secondary">Next day ▶</button>
-			<button id="copySummaryBtn" class="secondary">Copy Summary</button>
-			<button id="exportCsvBtn" class="secondary">Export CSV</button>
 			<button id="addEntryBtn">+ Add forgotten entry</button>
 		</div>
 	</div>
@@ -344,10 +258,7 @@ function getHtml(): string {
 
 	document.getElementById('addEntryBtn').addEventListener('click', () => send('addEntry'));
 	document.getElementById('prevDayBtn').addEventListener('click', () => send('prevDay'));
-	document.getElementById('nextDayBtn').addEventListener('click', () => send('nextDay'));
 	document.getElementById('todayBtn').addEventListener('click', () => send('today'));
-	document.getElementById('copySummaryBtn').addEventListener('click', () => send('copySummary'));
-	document.getElementById('exportCsvBtn').addEventListener('click', () => send('exportCsv'));
 
 	function renderActive(active, isToday) {
 		const card = document.getElementById('activeCard');
@@ -410,7 +321,6 @@ function getHtml(): string {
 		if (message.type === 'state') {
 			const state = message.state;
 			document.getElementById('dateLabel').textContent = state.dateLabel;
-			document.getElementById('nextDayBtn').disabled = !state.canGoForward;
 			document.getElementById('todayBtn').disabled = state.isToday;
 			document.getElementById('addEntryBtn').disabled = !state.isToday;
 			renderActive(state.active, state.isToday);
@@ -484,19 +394,8 @@ export function showDashboard(context: vscode.ExtensionContext): void {
 			case 'prevDay':
 				viewedDayOffset += 1;
 				break;
-			case 'nextDay':
-				if (viewedDayOffset > 0) {
-					viewedDayOffset -= 1;
-				}
-				break;
 			case 'today':
 				viewedDayOffset = 0;
-				break;
-			case 'copySummary':
-				await copySummary(context);
-				break;
-			case 'exportCsv':
-				await exportCsv(context);
 				break;
 		}
 		postState(context);
