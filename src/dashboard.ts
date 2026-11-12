@@ -153,6 +153,26 @@ async function editEntry(id: number): Promise<void> {
 	}
 }
 
+async function resumeEntry(context: vscode.ExtensionContext, id: number): Promise<void> {
+	if (viewedDayOffset !== 0) {
+		return;
+	}
+	if (session.hasActiveSession(context)) {
+		vscode.window.showWarningMessage('Stop or finish the current task before resuming another.');
+		return;
+	}
+	const log = db.getWorkLog(id);
+	if (!log) {
+		return;
+	}
+	const label =
+		log.category === 'client-support'
+			? '$(law) Client Support'
+			: (db.listProjects().find((p) => p.id === log.projectId)?.name ?? 'Unknown project');
+	await session.beginSession(context, { projectId: log.projectId, category: log.category, label }, log.description);
+	vscode.window.showInformationMessage(`Resumed: ${label} — ${log.description}`);
+}
+
 async function addMissingEntry(): Promise<void> {
 	if (viewedDayOffset !== 0) {
 		return;
@@ -216,7 +236,8 @@ function getHtml(): string {
 	tr:hover { background: var(--vscode-list-hoverBackground); }
 	.totals { margin-top: 20px; }
 	.muted { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
-	.edit-link { cursor: pointer; color: var(--vscode-textLink-foreground); }
+	.edit-link, .resume-link { cursor: pointer; color: var(--vscode-textLink-foreground); margin-right: 10px; }
+	.resume-link.disabled { cursor: default; opacity: 0.5; color: var(--vscode-descriptionForeground); }
 	.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 	button:disabled { opacity: 0.5; cursor: default; }
 </style>
@@ -288,7 +309,7 @@ function getHtml(): string {
 		document.getElementById('switchBtn').addEventListener('click', () => send('switch'));
 	}
 
-	function renderEntries(entries, isToday) {
+	function renderEntries(entries, isToday, hasActive) {
 		const body = document.getElementById('entriesBody');
 		if (!entries.length) {
 			body.innerHTML = '<tr><td colspan="6" class="muted">No entries for this day.</td></tr>';
@@ -301,11 +322,20 @@ function getHtml(): string {
 				'<td>' + e.startLabel + '</td>' +
 				'<td>' + e.endLabel + '</td>' +
 				'<td>' + e.durationLabel + '</td>' +
-				'<td>' + (isToday ? '<span class="edit-link" data-id="' + e.id + '">Edit</span>' : '') + '</td>' +
+				'<td>' + (isToday
+					? '<span class="edit-link" data-id="' + e.id + '">Edit</span>' +
+						'<span class="resume-link' + (hasActive ? ' disabled' : '') + '" data-id="' + e.id + '">Resume</span>'
+					: '') + '</td>' +
 			'</tr>'
 		).join('');
 		body.querySelectorAll('.edit-link').forEach((el) => {
 			el.addEventListener('click', () => send('editEntry', { id: Number(el.getAttribute('data-id')) }));
+		});
+		body.querySelectorAll('.resume-link').forEach((el) => {
+			el.addEventListener('click', () => {
+				if (el.classList.contains('disabled')) { return; }
+				send('resumeEntry', { id: Number(el.getAttribute('data-id')) });
+			});
 		});
 	}
 
@@ -324,7 +354,7 @@ function getHtml(): string {
 			document.getElementById('todayBtn').disabled = state.isToday;
 			document.getElementById('addEntryBtn').disabled = !state.isToday;
 			renderActive(state.active, state.isToday);
-			renderEntries(state.entries, state.isToday);
+			renderEntries(state.entries, state.isToday, !!state.active);
 			renderTotals(state.totals, state.grandTotalLabel);
 		}
 	});
@@ -386,6 +416,11 @@ export function showDashboard(context: vscode.ExtensionContext): void {
 			case 'editEntry':
 				if (message.id !== undefined) {
 					await editEntry(message.id);
+				}
+				break;
+			case 'resumeEntry':
+				if (message.id !== undefined) {
+					await resumeEntry(context, message.id);
 				}
 				break;
 			case 'addEntry':

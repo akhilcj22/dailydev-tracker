@@ -141,12 +141,12 @@ function getHtml(projects: Project[]): string {
 
 		<div id="newProjectRow" class="hidden">
 			<label for="newProjectName">New project name</label>
-			<input id="newProjectName" type="text" placeholder="ERPNext / Grain N Grace" />
+			<input id="newProjectName" type="text" placeholder="e.g. Website Redesign" />
 			<div class="error" id="newProjectError"></div>
 		</div>
 
 		<label for="description">What task are you going to work on?</label>
-		<input id="description" type="text" placeholder="Fix Delivery Tracker report" />
+		<input id="description" type="text" placeholder="e.g. Fix login bug" />
 		<div class="error" id="descriptionError"></div>
 		<div id="recentTasks" class="hidden"></div>
 
