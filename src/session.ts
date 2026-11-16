@@ -41,7 +41,9 @@ async function setSession(context: vscode.ExtensionContext, session: ActiveSessi
 /** Exported for direct unit testing of the pause-exclusion math, without needing real timers. */
 export function computeElapsedMs(session: ActiveSession, referenceTime: number = Date.now()): number {
 	const reference = session.pausedAt ? new Date(session.pausedAt).getTime() : referenceTime;
-	return reference - new Date(session.startTime).getTime() - session.accumulatedPauseMs;
+	return (
+		(session.priorDurationMs ?? 0) + reference - new Date(session.startTime).getTime() - session.accumulatedPauseMs
+	);
 }
 
 function updateStatusBar(context: vscode.ExtensionContext): void {
@@ -97,6 +99,36 @@ export async function beginSession(
 		startTime,
 		accumulatedPauseMs: 0,
 		pausedAt: null
+	};
+	await setSession(context, session);
+	startTicking(context);
+}
+
+/**
+ * Continues a previously finished work log instead of logging a separate entry for it: the
+ * original row is reopened and this stint's time is merged back into it when the session stops,
+ * so repeated resumes of the same task accumulate into one row rather than fragmenting the day.
+ */
+export async function resumeWorkLog(
+	context: vscode.ExtensionContext,
+	log: { id: number; projectId: number | null; category: WorkCategory; durationSeconds: number | null },
+	label: string,
+	description: string
+): Promise<void> {
+	if (getSession(context)) {
+		throw new Error('A task is already active.');
+	}
+	db.reopenWorkLog(log.id);
+	const session: ActiveSession = {
+		workLogId: log.id,
+		projectId: log.projectId,
+		category: log.category,
+		label,
+		description,
+		startTime: new Date().toISOString(),
+		accumulatedPauseMs: 0,
+		pausedAt: null,
+		priorDurationMs: (log.durationSeconds ?? 0) * 1000
 	};
 	await setSession(context, session);
 	startTicking(context);

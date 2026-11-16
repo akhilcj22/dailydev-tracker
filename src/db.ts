@@ -55,18 +55,28 @@ export function withTimeout<T>(promise: Thenable<T>, ms: number): Promise<T | ty
 	});
 }
 
-function readOrCreateFallbackKeyFile(storageDir: string): Buffer {
+function readFallbackKeyFile(storageDir: string): Buffer | undefined {
 	const fallbackKeyPath = path.join(storageDir, FALLBACK_KEY_FILENAME);
-	if (fs.existsSync(fallbackKeyPath)) {
-		return fs.readFileSync(fallbackKeyPath);
-	}
-	const key = crypto.randomBytes(32);
+	return fs.existsSync(fallbackKeyPath) ? fs.readFileSync(fallbackKeyPath) : undefined;
+}
+
+function writeFallbackKeyFile(storageDir: string, key: Buffer): void {
+	const fallbackKeyPath = path.join(storageDir, FALLBACK_KEY_FILENAME);
 	fs.writeFileSync(fallbackKeyPath, key);
 	try {
 		fs.chmodSync(fallbackKeyPath, 0o600);
 	} catch {
 		// Best-effort; see the matching comment in persist().
 	}
+}
+
+function readOrCreateFallbackKeyFile(storageDir: string): Buffer {
+	const existing = readFallbackKeyFile(storageDir);
+	if (existing) {
+		return existing;
+	}
+	const key = crypto.randomBytes(32);
+	writeFallbackKeyFile(storageDir, key);
 	return key;
 }
 
@@ -83,11 +93,18 @@ async function getOrCreateKey(context: vscode.ExtensionContext, storageDir: stri
 		const existing = await withTimeout(context.secrets.get(DB_KEY_SECRET_ID), SECRET_STORAGE_TIMEOUT_MS);
 		if (existing !== TIMED_OUT) {
 			if (existing) {
-				return Buffer.from(existing, 'base64');
+				const key = Buffer.from(existing, 'base64');
+				// Mirror it locally too: SecretStorage can report a successful store() without durably
+				// persisting it (e.g. no libsecret/keyring daemon, as on a bare WSL2 install), so a later
+				// activation could "lose" this key and otherwise have no way to recover it (see init()'s
+				// decrypt-with-recovery step).
+				writeFallbackKeyFile(storageDir, key);
+				return key;
 			}
 			const key = crypto.randomBytes(32);
 			const stored = await withTimeout(context.secrets.store(DB_KEY_SECRET_ID, key.toString('base64')), SECRET_STORAGE_TIMEOUT_MS);
 			if (stored !== TIMED_OUT) {
+				writeFallbackKeyFile(storageDir, key);
 				return key;
 			}
 		}
@@ -105,13 +122,46 @@ function encrypt(data: Buffer): Buffer {
 	return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]);
 }
 
-function decrypt(data: Buffer): Buffer {
+function decryptWithKey(data: Buffer, key: Buffer): Buffer {
 	const iv = data.subarray(0, 12);
 	const authTag = data.subarray(12, 28);
 	const ciphertext = data.subarray(28);
-	const decipher = crypto.createDecipheriv('aes-256-gcm', dbKey, iv);
+	const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
 	decipher.setAuthTag(authTag);
 	return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+function tryDecryptWithKey(data: Buffer, key: Buffer): Buffer | undefined {
+	try {
+		return decryptWithKey(data, key);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Decrypts with the active dbKey, but falls back to the locally mirrored backup key before giving
+ * up. SecretStorage can report a successful store() without durably persisting it (no
+ * libsecret/keyring daemon, as on a bare WSL2 install) — a later activation then "finds" no key,
+ * generates a brand new one, and this session's dbKey no longer matches what actually encrypted
+ * the file on disk. Without this recovery step that mismatch looked identical to real corruption,
+ * and init() would quarantine (i.e. delete) perfectly good data on every such restart.
+ */
+function decrypt(data: Buffer, context: vscode.ExtensionContext, storageDir: string): Buffer {
+	const direct = tryDecryptWithKey(data, dbKey);
+	if (direct) {
+		return direct;
+	}
+	const backupKey = readFallbackKeyFile(storageDir);
+	if (backupKey && !backupKey.equals(dbKey)) {
+		const recovered = tryDecryptWithKey(data, backupKey);
+		if (recovered) {
+			dbKey = backupKey;
+			void context.globalState.update(USE_FALLBACK_KEY_STORAGE_FLAG, true);
+			return recovered;
+		}
+	}
+	throw new Error('Decryption failed');
 }
 
 const SCHEMA = `
@@ -147,9 +197,10 @@ export async function init(context: vscode.ExtensionContext): Promise<void> {
 		const isLegacyPlaintext = onDisk && onDisk.subarray(0, SQLITE_MAGIC.length).equals(SQLITE_MAGIC);
 		// A legacy plaintext file (from before encryption-at-rest) is migrated in place: load it as-is,
 		// then the unconditional persist() below re-saves it encrypted.
-		const existing = isLegacyPlaintext ? onDisk : onDisk ? decrypt(onDisk) : undefined;
+		const existing = isLegacyPlaintext ? onDisk : onDisk ? decrypt(onDisk, context, storageDir) : undefined;
 		db = new sql.Database(existing);
 		db.run(SCHEMA);
+		migrateSchema();
 	} catch (error) {
 		// A corrupted (or unreadable — e.g. wrong/lost key) data file would otherwise crash
 		// activate() on every startup, permanently bricking the extension. Quarantine it and start
@@ -164,8 +215,18 @@ export async function init(context: vscode.ExtensionContext): Promise<void> {
 		}
 		db = new sql.Database();
 		db.run(SCHEMA);
+		migrateSchema();
 	}
 	persist();
+}
+
+/** Adds columns introduced after the initial CREATE TABLE to databases that predate them. */
+function migrateSchema(): void {
+	try {
+		db.run('ALTER TABLE work_logs ADD COLUMN completed INTEGER NOT NULL DEFAULT 0');
+	} catch {
+		// Already has the column.
+	}
 }
 
 function persist(): void {
@@ -223,7 +284,8 @@ export function addWorkLog(entry: NewWorkLog): WorkLog {
 		description: entry.description,
 		startTime: entry.startTime,
 		endTime: null,
-		durationSeconds: null
+		durationSeconds: null,
+		completed: false
 	};
 }
 
@@ -240,15 +302,15 @@ function rowToWorkLog(row: (string | number | Uint8Array | null)[]): WorkLog {
 		description: String(row[3]),
 		startTime: String(row[4]),
 		endTime: row[5] === null ? null : String(row[5]),
-		durationSeconds: row[6] === null ? null : Number(row[6])
+		durationSeconds: row[6] === null ? null : Number(row[6]),
+		completed: Number(row[7]) === 1
 	};
 }
 
+const WORK_LOG_COLUMNS = 'id, project_id, category, description, start_time, end_time, duration_seconds, completed';
+
 export function getWorkLog(id: number): WorkLog | undefined {
-	const result = db.exec(
-		'SELECT id, project_id, category, description, start_time, end_time, duration_seconds FROM work_logs WHERE id = ?',
-		[id]
-	);
+	const result = db.exec(`SELECT ${WORK_LOG_COLUMNS} FROM work_logs WHERE id = ?`, [id]);
 	if (result.length === 0) {
 		return undefined;
 	}
@@ -260,9 +322,43 @@ export function finishWorkLog(id: number, endTime: string, durationSeconds: numb
 	persist();
 }
 
+/**
+ * Marks a finished work log as fully done: it stops showing up as resumable, both for the
+ * dashboard's per-entry Resume link and for the Start Task auto-resume match.
+ */
+export function completeWorkLog(id: number): void {
+	db.run('UPDATE work_logs SET completed = 1 WHERE id = ?', [id]);
+	persist();
+}
+
+/** Clears end_time/duration/completed on an already-finished row so a resumed stint can be merged back into it on stop. */
+export function reopenWorkLog(id: number): void {
+	db.run('UPDATE work_logs SET end_time = NULL, duration_seconds = NULL, completed = 0 WHERE id = ?', [id]);
+	persist();
+}
+
+/**
+ * The most recent finished-but-not-completed entry for this exact project/category/description,
+ * if any — used by Start Task to continue a repeated task instead of logging a duplicate row.
+ */
+export function findResumableWorkLog(projectId: number | null, category: WorkCategory, description: string): WorkLog | undefined {
+	const result = db.exec(
+		`SELECT ${WORK_LOG_COLUMNS} FROM work_logs
+		 WHERE project_id IS ? AND category = ? AND description = ? COLLATE NOCASE
+			 AND end_time IS NOT NULL AND completed = 0
+		 ORDER BY start_time DESC
+		 LIMIT 1`,
+		[projectId, category, description]
+	);
+	if (result.length === 0) {
+		return undefined;
+	}
+	return rowToWorkLog(result[0].values[0]);
+}
+
 export function listFinishedWorkLogs(limit: number): WorkLogWithProjectName[] {
 	const result = db.exec(
-		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds,
+		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds, w.completed,
 				COALESCE(p.name, 'Client Support') AS project_name
 		 FROM work_logs w
 		 LEFT JOIN projects p ON p.id = w.project_id
@@ -275,8 +371,8 @@ export function listFinishedWorkLogs(limit: number): WorkLogWithProjectName[] {
 		return [];
 	}
 	return result[0].values.map((row) => ({
-		...rowToWorkLog(row.slice(0, 7)),
-		projectName: String(row[7])
+		...rowToWorkLog(row.slice(0, 8)),
+		projectName: String(row[8])
 	}));
 }
 
@@ -303,7 +399,7 @@ export function updateWorkLogDescription(id: number, description: string): WorkL
 
 export function listFinishedWorkLogsBetween(startIso: string, endIso: string): WorkLogWithProjectName[] {
 	const result = db.exec(
-		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds,
+		`SELECT w.id, w.project_id, w.category, w.description, w.start_time, w.end_time, w.duration_seconds, w.completed,
 				COALESCE(p.name, 'Client Support') AS project_name
 		 FROM work_logs w
 		 LEFT JOIN projects p ON p.id = w.project_id
@@ -315,8 +411,8 @@ export function listFinishedWorkLogsBetween(startIso: string, endIso: string): W
 		return [];
 	}
 	return result[0].values.map((row) => ({
-		...rowToWorkLog(row.slice(0, 7)),
-		projectName: String(row[7])
+		...rowToWorkLog(row.slice(0, 8)),
+		projectName: String(row[8])
 	}));
 }
 
@@ -357,6 +453,7 @@ export function addFinishedWorkLog(entry: {
 		description: entry.description,
 		startTime: entry.startTime,
 		endTime: entry.endTime,
-		durationSeconds: entry.durationSeconds
+		durationSeconds: entry.durationSeconds,
+		completed: false
 	};
 }
